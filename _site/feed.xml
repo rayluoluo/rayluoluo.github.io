@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.0.0">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2020-03-20T01:42:53+08:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">小灿灿</title><subtitle>学无止境，奋斗！</subtitle><entry><title type="html">我的第一篇博文</title><link href="http://localhost:4000/jekyll/update/%E7%94%9F%E6%B4%BB/2020/03/19/my-first-post.html" rel="alternate" type="text/html" title="我的第一篇博文" /><published>2020-03-19T01:17:55+08:00</published><updated>2020-03-19T01:17:55+08:00</updated><id>http://localhost:4000/jekyll/update/%E7%94%9F%E6%B4%BB/2020/03/19/my-first-post</id><content type="html" xml:base="http://localhost:4000/jekyll/update/%E7%94%9F%E6%B4%BB/2020/03/19/my-first-post.html">&lt;p&gt;这是我的第一篇Pages博文。&lt;/p&gt;
+
+&lt;p&gt;写博常用连接：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://jekyllrb.com/docs/posts/&quot;&gt;Jekyll写博文&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content><author><name></name></author><category term="生活" /><category term="life" /><summary type="html">这是我的第一篇Pages博文。</summary></entry></feed>
