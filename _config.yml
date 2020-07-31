@@ -21,7 +21,7 @@
 title: 小灿灿
 email: canweiluo@163.com
 description: >- # this means to ignore newlines until "baseurl:"
-  学无止境，奋斗！
+  博主懒成狗
 baseurl: "" # the subpath of your site, e.g. /blog
 url: "" # the base hostname & protocol for your site, e.g. http://example.com
 # twitter_username: jekyllrb
@@ -52,3 +52,5 @@ theme: minima
 #   - vendor/cache/
 #   - vendor/gems/
 #   - vendor/ruby/
+
+skin: solarized

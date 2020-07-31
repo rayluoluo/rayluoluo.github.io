@@ -1,0 +1,9 @@
+---
+layout: post
+title: zypper命令
+---
+
+# 增加
+
+# 查找软件依赖
+zypper info --requires libkde4-devel
