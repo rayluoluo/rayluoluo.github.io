@@ -1,5 +1,5 @@
 /nohup.out
 /jekyll.pid
-/.jekyll-cache
+.jekyll-cache
 _site
 /.jekyll-metadata
