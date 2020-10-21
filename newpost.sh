@@ -4,7 +4,7 @@ usage(){
   exit 1
 }
 
-[ $# -lt 1 ] && echo -e "Error - Title is not specified."&& usage 
+[ $# -lt 1 ] && echo -e "Error - Title is not specified." && usage 
 
 title=$1
 
@@ -13,8 +13,11 @@ filename=$day'-'$1'.markdown'
 #echo $filename
 
 cat <<EOF >./_drafts/$filename
-#todo
+---
+layout: post
+title:  "$title"
+---
 EOF
 
 cd ./_drafts
-ls $filename
+readlink -f $filename

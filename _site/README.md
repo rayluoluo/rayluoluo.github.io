@@ -4,4 +4,4 @@
 -  bundle exec jekyll serve
 
 #### opensource license
-- jekyll-table-of-contents: [https://github.com/ghiculescu/jekyll-table-of-contents](https://github.com/ghiculescu/jekyll-table-of-contents)
+refer to [LICENSE](./LICENSE)

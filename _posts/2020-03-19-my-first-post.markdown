@@ -1,10 +1,10 @@
 ---
 layout: post
 title:  "第一篇博客"
-date:   2020-03-19 01:17:55 +0800
 category: [生活]
 categories: [jekyll update]
-tags: [life]
+tags: jekyll markdown
+excerpt_separator: <!--more-->
 ---
 
 这是我的第一篇Pages博文。
@@ -61,6 +61,6 @@ tags: [life]
 
 - [Remarkable](https://www.jianshu.com/p/07cbe99e81ec): 简书上的博文
 
-# 导航
+# 导航(最终未使用)
 
 - [为Jekyll博客添加目录与ScrollSpy效果](http://t.hengwei.me/post/%E4%B8%BAjekyll%E5%8D%9A%E5%AE%A2%E6%B7%BB%E5%8A%A0%E7%9B%AE%E5%BD%95%E4%B8%8Escrollspy%E6%95%88%E6%9E%9C.html)
