@@ -1,6 +1,6 @@
 /nohup.out
 /jekyll.pid
 .jekyll-cache
-_site
+_site/
 /.jekyll-metadata
 .idea/
