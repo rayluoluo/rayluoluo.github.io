@@ -1,8 +1,7 @@
 ---
 layout: post
-title:  "第一篇博客"
-category: [生活]
-categories: [jekyll update]
+title:  "写博文"
+categories: 杂物房
 tags: jekyll markdown
 excerpt_separator: <!--more-->
 ---

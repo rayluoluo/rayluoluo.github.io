@@ -1,6 +1,7 @@
 ---
 layout: post
 title: zypper命令
+categories: draft
 ---
 
 # 增加
