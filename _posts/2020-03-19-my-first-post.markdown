@@ -52,7 +52,9 @@ excerpt_separator: <!--more-->
 
 - [Pages支持的主题](https://pages.github.com/themes/)
 
-  本博客使用minima: [https://github.com/jekyll/minima](https://github.com/jekyll/minima)
+  本博客使用过的主题minima: [https://github.com/jekyll/minima](https://github.com/jekyll/minima)
+  
+  本博客当前使用的主题monos: [https://github.com/ejjoo/jekyll-theme-monos](https://github.com/ejjoo/jekyll-theme-monos)
 
 # Markdown编辑器
 
