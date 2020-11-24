@@ -1,6 +1,6 @@
 #!/bin/bash
 usage(){
-  echo -e "Error - cmd usage:\n ./$0 [start|stop]"
+  echo -e "Error - cmd usage:\n ./$0 [start|stop|restart]"
 }
 
 getpid(){
@@ -30,6 +30,10 @@ case $1 in
     else
       echo "pid: $pid" && kill -9 $pid && echo "jekyll is stopped."
     fi
+    ;;
+  restart)
+    sh $0 stop
+    sh $0 start
     ;;
   *)
     usage
