@@ -1,6 +1,8 @@
+/*
 @import url(//fonts.googleapis.com/css?family=Ubuntu:500&subset=latin,latin-ext);
 @import url('https://fonts.googleapis.com/css?family=Gelasio|Kulim+Park|Nanum+Myeongjo|Nanum+Gothic|Noto+Sans|Noto+Sans+KR|Roboto&display=swap');
-@import url(syntax/monokai.css);
+*/
+@import url(syntax/{{ site.highlighter-theme | default: 'monokai' }}.css);
 
 :root {
   --blue: #007bff;
@@ -298,6 +300,15 @@ footer {
 	color: #ccc;
 }
 
+.social-media-list li a .svg-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  fill: currentColor;
+  padding: 5px 3px 2px 5px;
+  vertical-align: text-bottom;
+  box-sizing: content-box;
+}
 
 @media (max-width: 576px) {
 	article {

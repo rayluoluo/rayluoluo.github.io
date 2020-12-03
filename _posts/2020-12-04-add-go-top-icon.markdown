@@ -1,0 +1,77 @@
+---
+layout: post
+title:  "页面返回页顶"
+category: "前端"
+tags: "jquery css"
+---
+参考：[如何实现“返回顶部”的页面效果](https://www.liaoxuefeng.com/article/895922498171008)
+
+```html
+<div class="go-top">
+        <div class="arrow"></div>
+        <div class="stick"></div>
+</div>
+
+<style>
+div.go-top {
+        display: none;
+        opacity: 0.6;
+        z-index: 999999;
+        position: fixed;
+        bottom: 113px;
+        left: 90%;
+        margin-left: 40px;
+        border: 1px solid #222222;
+        width: 38px;
+        height: 38px;
+        background-color: #eddec2;
+        border-radius: 3px;
+        cursor: pointer;
+}
+
+div.go-top:hover {
+        opacity: 1;
+        filter: alpha(opacity=100);
+}
+
+div.go-top div.arrow {
+        position: absolute;
+        left: 10px;
+        top: -1px;
+        width: 0;
+        height: 0;
+        border: 9px solid transparent;
+        border-bottom-color: #222222;
+}
+
+div.go-top div.stick {
+        position: absolute;
+        left: 15px;
+        top: 15px;
+        width: 8px;
+        height: 14px;
+        display: block;
+        background-color: #222222;
+        -webkit-border-radius: 1px;
+        -moz-border-radius: 1px;
+        border-radius: 1px;
+}
+</style>
+
+<script src="/public/js/jquery-3.4.1.slim.min.js"></script>
+<script>
+        $(function() {
+                $(window).scroll(function() {
+                        debugger;
+                        if ($(window).scrollTop() > $(window).height()/2)
+                                $('div.go-top').show();
+                        else
+                                $('div.go-top').hide();
+                });
+                $('div.go-top').click(function() {
+                        /*$(window).animate({scrollTop: 0}, 1000);*/
+                        $('html, body').scrollTop(0);
+                });
+        });
+</script>
+```
