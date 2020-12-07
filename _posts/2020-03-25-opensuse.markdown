@@ -1,0 +1,28 @@
+---
+layout: post
+title:  "OpenSuse安装"
+category: Linux
+tags: opensuse
+---
+
+# 安装opensuse
+
+## 分区
+	专家分区程序（自定义分区）
+	/boot/efi		200M
+	/			50G
+	/home		46G
+	swap		4G
+
+## 系统升级
+
+```
+zypper refresh
+zypper update
+```
+
+# 参考链接
+- 安装双系统: [https://www.cnblogs.com/shyn/articles/3539698.html](https://www.cnblogs.com/shyn/articles/3539698.html)
+- openSUSE Leap 15.0系统的图解安装教程： [https://ywnz.com/linuxaz/2672.html](https://ywnz.com/linuxaz/2672.html)
+- 安装 openSUSE Leap 42.1 之后要做的 8 件事: [https://www.linuxidc.com/Linux/2016-05/131189.htm](https://www.linuxidc.com/Linux/2016-05/131189.htm)
+- openSUSE 15.0 升级到 openSUSE 15.1：[https://blog.csdn.net/weixin_33862041/article/details/91833377](https://blog.csdn.net/weixin_33862041/article/details/91833377)

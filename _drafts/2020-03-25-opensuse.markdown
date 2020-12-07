@@ -1,5 +1,0 @@
----
-layout: post
-title:  "OpenSuse安装"
-categories: draft
----
