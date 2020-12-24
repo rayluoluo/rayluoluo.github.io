@@ -1,0 +1,142 @@
+---
+layout: post
+title:  "SSR"
+category: "杂物房"
+tags: ""
+---
+
+# 准备工作：启动后台进程
+
+## 安装shardownsocks-libev
+
+``` shell
+sudo zypper install shadowsocks-libev
+```
+
+## 获取connecting code
+
+形如`ss://YWVzLTI1Ni1nY206Y0c5UGMwMXFRWGhQVXpCNFRXa3dkMDlUTUhkTlFWZFJZMUAxMy4xMTUuNDAuMTIyOjUyMjE5`
+
+> Tips: 104.18.18.18 free-ss.site
+
+## 执行脚本
+
+``` shell
+sh updateShadowSocks.sh
+```
+
+脚本内容：
+
+``` shell
+!/bin/bash
+
+usage() {
+        echo "usage: $0 <URL>"
+        exit 1
+}
+
+[ ! $# -eq 1 ]&&usage
+
+# ss://YWVzLTI1Ni1nY206Y0c5UGMwMXFRWGhQVXpCNFRXa3dkMDlUTUhkTlFWZFJZMUAxMy4xMTUuNDAuMTIyOjUyMjE5
+url=$1
+echo $url | awk -F'/' '{print $3}'  > tmp.txt
+cat ./tmp.txt
+# aes-256-gcm:cG9Pc01qQXhPUzB4TWkwd09TMHdNQVdRY1@13.115.40.122:52219
+keyInfo=`base64 -d ./tmp.txt`
+echo $keyInfo
+method=`echo $keyInfo | awk -F':|@' '{print $1}'`
+password=`echo $keyInfo | awk -F':|@' '{print $2}'`
+ip=`echo $keyInfo | awk -F':|@' '{print $3}'`
+port=`echo $keyInfo | awk -F':|@' '{print $4}'`
+
+cat>tmp.txt<<EOF
+{
+        "server":"$ip",
+        "server_port":$port,
+        "local_address":"127.0.0.1",
+        "local_port":2046,
+        "password":"$password",
+        "timeout":"600",                                                                                                                             
+        "method":"$method"
+}
+EOF
+cat tmp.txt
+sudo cp tmp.txt /etc/shadowsocks/shadowsocks-libev-config.json
+rm tmp.txt
+
+pid=`ps -ef | grep shadowsocks | grep -v grep | awk '{print $2}'`
+if [ ! -z $pid ]; then
+  echo -e "\033[32mpid: $pid -> will kill it\033[0m" && kill -9 $pid
+fi
+
+#echo "sudo systemctl start shadowsocks-libev-server@shadowsocks-libev-config"
+echo "nohup ss-local -c /etc/shadowsocks/shadowsocks-libev-config.json &"
+nohup ss-local -c /etc/shadowsocks/shadowsocks-libev-config.json &
+pid=`ps -ef | grep shadowsocks | grep -v grep | awk '{print $2}'`
+echo -e "\033[32mnew pid: $pid -> start ok\033[0m"
+```
+
+执行后，文件被更新：`/etc/shadowsocks/shadowsocks-libev-config.json`
+
+```shell
+# cat /etc/shadowsocks/shadowsocks-libev-config.json  
+{ 
+       "server":"XX.XX.XX.XX", 
+       "server_port":XXXX, 
+       "local_address":"127.0.0.1", 
+       "local_port":2046, 
+       "password":"XXXXXXXXXXXX", 
+       "timeout":"600",                                                                                                                                                                         
+       "method":"aes-256-gcm" 
+}
+```
+
+## 确认进程已经启动
+
+确认方法：
+
+```
+ps -ef | grep shadowsocks | grep -v grep
+```
+
+# 安装Chrome
+
+[How To Install Google Chrome On OpenSUSE Leap](https://www.linuxbabe.com/desktop-linux/how-to-install-google-chrome-on-opensuse-leap-42-1)
+
+1. `sudo zypper ar http://dl.google.com/linux/chrome/rpm/stable/x86_64 Google-Chrome`
+2. `sudo zypper ref`
+3. `wget https://dl.google.com/linux/linux_signing_key.pub`
+4. `sudo rpm --import linux_signing_key.pub`
+5. `sudo zypper in google-chrome-stable`
+
+# 临时FQ代理方式
+
+![Chrome](/assets/chrome.png "Chrome")
+
+# 配置Chrome
+
+## 安装和配置SwitchyOmega
+
+到chrome://extensions/安装SwitchyOmega。
+安装成功后，chrome启动参数proxy-server就可以去掉了。
+
+![SwitchyOmega](/assets/Screenshot_20201225_025833.png "SwitchyOmega")
+
+# 【失败】曾意图安装界面管理，没继续研究了
+
+## 先安装libQtShadowsocks
+
+https://github.com/shadowsocks/libQtShadowsocks/wiki/Compiling
+
+## 再安装Shadowsocks-QT
+
+https://github.com/shadowsocks/shadowsocks-qt5/releases
+
+```
+~/fork/shadowsocks-qt5-3.0.1> mkdir build 
+~/fork/shadowsocks-qt5-3.0.1> cd build/
+```
+
+# 参考链接
+
+- [Shadowsocks + openSUSE](https://guoyunhe.me/2015/01/01/shadowsocks-on-opensuse/)
