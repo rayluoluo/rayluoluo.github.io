@@ -22,7 +22,7 @@ sudo zypper install shadowsocks-libev
 ## 执行脚本
 
 ``` shell
-sh updateShadowSocks.sh
+sh updateShadowSocks.sh ss://YWVzLTI1Ni1nY206Y0c5UGMwMXFRWGhQVXpCNFRXa3dkMDlUTUhkTlFWZFJZMUAxMy4xMTUuNDAuMTIyOjUyMjE5
 ```
 
 脚本内容：
