@@ -28,12 +28,12 @@
 <script>
 	function removeCategory() {
 		if (window.location.hash) {
-			debugger;
+			//debugger;
 			let hash = decodeURIComponent(window.location.hash.substring(1));
 			$('#category-name').text(hash.substring(0, 1).toUpperCase() + hash.substring(1));
 			let category_class = '.post-category-' + hash;
 			let items = $('.post-list-item').each((i, e) => {
-			    debugger;
+			    //debugger;
 				if (!$(e).hasClass('post-category-' + hash)) {
 					$(e).hide();
 				} else {

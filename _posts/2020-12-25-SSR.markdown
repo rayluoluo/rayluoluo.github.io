@@ -99,6 +99,8 @@ echo -e "\033[32mnew pid: $pid -> start ok\033[0m"
 ps -ef | grep shadowsocks | grep -v grep
 ```
 
+> 【失败】曾意图安装界面管理，没继续研究了
+
 # 安装Chrome
 
 [How To Install Google Chrome On OpenSUSE Leap](https://www.linuxbabe.com/desktop-linux/how-to-install-google-chrome-on-opensuse-leap-42-1)
@@ -109,20 +111,19 @@ ps -ef | grep shadowsocks | grep -v grep
 4. `sudo rpm --import linux_signing_key.pub`
 5. `sudo zypper in google-chrome-stable`
 
-# 临时FQ代理方式
+> 临时FQ代理方式
+>
+> ![Chrome](/assets/chrome.png "Chrome")
 
-![Chrome](/assets/chrome.png "Chrome")
+## 配置Chrome
 
-# 配置Chrome
-
-## 安装和配置SwitchyOmega
+### 安装和配置SwitchyOmega
 
 到chrome://extensions/安装SwitchyOmega。
 安装成功后，chrome启动参数proxy-server就可以去掉了。
 
 ![SwitchyOmega](/assets/Screenshot_20201225_025833.png "SwitchyOmega")
 
-# 【失败】曾意图安装界面管理，没继续研究了
 
 ## 先安装libQtShadowsocks
 

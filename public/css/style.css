@@ -81,7 +81,7 @@ code {
 }
 
 .container {
-	min-height: 100%;
+	/*min-height: 100%;*/
 	display: flex;
 	justify-content: space-between;
 	flex-flow: row nowrap;
