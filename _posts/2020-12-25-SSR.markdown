@@ -137,6 +137,13 @@ https://github.com/shadowsocks/shadowsocks-qt5/releases
 ~/fork/shadowsocks-qt5-3.0.1> cd build/
 ```
 
+# 配置git
+
+```
+git config --global http.proxy 'socks5://127.0.0.1:2046'
+git config --global https.proxy 'socks5://127.0.0.1:2046'
+```
+
 # 参考链接
 
 - [Shadowsocks + openSUSE](https://guoyunhe.me/2015/01/01/shadowsocks-on-opensuse/)
