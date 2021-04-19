@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "openresty"
+title:  "openresty学习链接"
 category: "nginx"
 tags: "openresty nginx"
 ---

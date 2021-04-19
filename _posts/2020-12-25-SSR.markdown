@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  "SSR"
+title:  "linux下使用SSR科学上网"
 category: "杂物房"
 tags: ""
 ---
