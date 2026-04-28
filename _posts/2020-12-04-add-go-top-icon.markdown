@@ -1,8 +1,8 @@
 ---
 layout: post
-title:  "页面返回页顶"
-category: "前端"
-tags: "jquery css"
+title:  页面返回页顶
+category: 技术/前端
+tags: jquery css
 ---
 参考：[如何实现“返回顶部”的页面效果](https://www.liaoxuefeng.com/article/895922498171008)
 

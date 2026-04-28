@@ -1,7 +1,8 @@
 ---
 layout: post
 title: zypper命令
-categories: draft
+categories: 技术/Linux
+tags: zypper
 ---
 
 # 增加

@@ -29,15 +29,38 @@
 <div class="sidebar-item sidebar-nav">
 	<ul class="nav">
 		<li class="nav-title">分类</li>
+		{% assign path_list = '' %}
 		{% for category in site.categories %}
-		<li>
-			<a class="nav-item" href="{{ root_url }}/{{ site.category_dir }}#{{ category | first }}">
-				<span class="name">{{ category | first }}</span>
-				<span class="badge">{{ category | last | size }}</span>
-			</a>
-		</li>
+			{% assign category_name = category | first %}
+			{% assign parts = category_name | split: '/' %}
+			{% assign current_path = '' %}
+			{% for part in parts %}
+				{% if current_path == '' %}
+					{% assign current_path = part %}
+				{% else %}
+					{% assign current_path = current_path | append: '/' | append: part %}
+				{% endif %}
+				{% assign check_str = '[[[' | append: current_path | append: ']]]' %}
+				{% unless path_list contains check_str %}
+					{% assign path_list = path_list | append: check_str %}
+				{% endunless %}
+			{% endfor %}
 		{% endfor %}
-		</nav>
+		{% assign path_array = path_list | remove_first: '[[[' | split: ']]][[[' %}
+		{% assign sorted_paths = path_array | sort %}
+		{% for path in sorted_paths %}
+			{% assign clean_path = path | remove: ']]]' %}
+			{% if clean_path != '' %}
+				{% assign parts = clean_path | split: '/' %}
+				{% assign depth = parts.size %}
+				{% assign display_name = parts | last %}
+				<li class="category-item depth-{{ depth }}" data-category="{{ clean_path }}">
+					<a class="nav-item" href="{{ root_url }}/{{ site.category_dir }}#{{ clean_path | uri_escape }}">
+						<span class="name">{{ display_name }}</span>
+					</a>
+				</li>
+			{% endif %}
+		{% endfor %}
 	</ul>
 </div>
 

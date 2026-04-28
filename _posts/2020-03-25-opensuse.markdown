@@ -1,11 +1,11 @@
 ---
 layout: post
 title:  "OpenSuse安装"
-category: Linux
-tags: opensuse
+category: 技术/Linux
+tags: OpenSuse
 ---
 
-# 安装opensuse
+# 安装OpenSuse
 
 ## 分区
 	专家分区程序（自定义分区）

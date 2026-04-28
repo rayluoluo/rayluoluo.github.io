@@ -9,8 +9,7 @@
 			{%- for post in site.posts -%}
                 {% for category in post.categories -%}
                     <li class="post-list-item post-category-{{ category }}">
-                        <!-- {%- assign date_format = site.date_format | default: "%b %-d, %Y" -%} -->
-                        {%- assign date_format = "%Y/%m/%d" -%}
+                        {%- assign date_format = site.date_format | default: "%Y/%m/%d" -%}
                         <span class="post-date">{{ post.date | date: date_format }}</span>
                         <a class="post-link" href="{{ post.url | relative_url }}">
                             {{ post.title | escape }}
@@ -26,27 +25,34 @@
 
 <script src="/public/js/jquery-3.4.1.slim.min.js"></script>
 <script>
-	function removeCategory() {
-		if (window.location.hash) {
-			//debugger;
-			let hash = decodeURIComponent(window.location.hash.substring(1));
-			$('#category-name').text(hash.substring(0, 1).toUpperCase() + hash.substring(1));
-			let category_class = '.post-category-' + hash;
-			let items = $('.post-list-item').each((i, e) => {
-			    //debugger;
-				if (!$(e).hasClass('post-category-' + hash)) {
-					$(e).hide();
-				} else {
-					$(e).show();
+	function filterCategory() {
+		let hash = window.location.hash ? decodeURIComponent(window.location.hash.substring(1)) : '';
+		if (hash) {
+			$('#category-name').text(hash.split('/').map(s => s.substring(0, 1).toUpperCase() + s.substring(1)).join('/'));
+			$('.post-list-item').each((i, e) => {
+				let hasMatch = false;
+				let classList = $(e).attr('class').split(' ');
+				for (let j = 0; j < classList.length; j++) {
+					let cls = classList[j];
+					if (cls.startsWith('post-category-')) {
+						let category = cls.replace('post-category-', '');
+						if (category === hash || category.startsWith(hash + '/')) {
+							hasMatch = true;
+							break;
+						}
+					}
 				}
+				$(e).toggle(hasMatch);
 			});
+		} else {
+			$('#category-name').text('全部');
+			$('.post-list-item').show();
 		}
 	}
 	$(window).on('hashchange', () => {
-		removeCategory();
+		filterCategory();
 	});
 	$(document).ready(() => {
-		removeCategory();	
-	})
-	
+		filterCategory();
+	});
 </script>

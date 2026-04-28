@@ -1,8 +1,8 @@
 ---
 layout: post
-title:  "linux下使用SSR科学上网"
-category: "杂物房"
-tags: ""
+title:  linux下使用SSR科学上网
+category: 杂物房/科学上网
+tags: SSR
 ---
 
 # 准备工作：启动后台进程

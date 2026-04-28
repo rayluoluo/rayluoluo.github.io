@@ -1,8 +1,8 @@
 ---
 layout: post
-title:  "写博文"
+title:  写博文
 categories: 杂物房
-tags: jekyll markdown
+tags: 写博文 Jekyll
 excerpt_separator: <!--more-->
 ---
 

@@ -1,8 +1,8 @@
 ---
 layout: post
-title:  "Java学习链接"
-category: "Java"
-tags: ""
+title:  Java学习链接
+category: 技术/Java
+tags: Java
 ---
 
 [Java全栈知识体系](https://www.pdai.tech/)

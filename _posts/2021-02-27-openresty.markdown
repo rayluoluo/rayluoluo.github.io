@@ -1,8 +1,9 @@
 ---
 layout: post
-title:  "openresty学习链接"
-category: "nginx"
-tags: "openresty nginx"
+title:  openresty学习链接
+category: 技术/nginx
+tags: 
+  - nginx openresty
 ---
 
 # 学习链接
