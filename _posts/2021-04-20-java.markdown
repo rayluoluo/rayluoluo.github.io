@@ -6,3 +6,7 @@ tags: Java
 ---
 
 [Java全栈知识体系](https://www.pdai.tech/)
+
+[JavaGuide](https://javaguide.cn/)
+
+[JavaGuide 面试突击版](https://javaguide.cn/interview-preparation/backend-interview-plan.html)

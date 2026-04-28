@@ -552,3 +552,45 @@ footer {
   margin-bottom: 5px;
   margin-top: 10px;
 }
+
+.year-item {
+  position: relative;
+  padding: 3px 0;
+}
+
+.year-item .nav-item {
+  font-size: 95%;
+}
+
+.year-item .count {
+  font-size: 70%;
+  color: #888;
+  margin-left: 4px;
+}
+
+.year-nav {
+  margin-left: 15px;
+  padding-left: 0;
+  list-style-type: none;
+}
+
+.month-item {
+  position: relative;
+  padding: 2px 0;
+}
+
+.month-item::before {
+  content: "├─ ";
+  color: #555;
+  font-size: 70%;
+}
+
+.month-item .nav-item {
+  font-size: 85%;
+}
+
+.month-item .count {
+  font-size: 65%;
+  color: #777;
+  margin-left: 3px;
+}

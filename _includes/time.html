@@ -1,0 +1,63 @@
+<article class="post">
+	<header class="post-header home">
+		<div class="post-title">时间归档 - <span id='time-name'>全部</span></div>
+	</header>
+
+	<div class="post-content">
+		{%- if site.posts.size > 0 -%}
+		<ul class="post-list">
+			{%- for post in site.posts -%}
+                {% assign year = post.date | date: "%Y" %}
+                {% assign month = post.date | date: "%m" %}
+                <li class="post-list-item post-year-{{ year }} post-month-{{ year }}-{{ month }}">
+                    {%- assign date_format = site.date_format | default: "%Y/%m/%d" -%}
+                    <span class="post-date">{{ post.date | date: date_format }}</span>
+                    <a class="post-link" href="{{ post.url | relative_url }}">
+                        {{ post.title | escape }}
+                    </a>
+                    {%- if site.show_excerpts -%}{{ post.excerpt }}{%- endif -%}
+                </li>
+		  	{%- endfor -%}
+		</ul>
+	  	{%- endif -%}
+	</div>
+</article>
+
+<script src="/public/js/jquery-3.4.1.slim.min.js"></script>
+<script>
+	function filterTime() {
+		let hash = window.location.hash ? decodeURIComponent(window.location.hash.substring(1)) : '';
+		if (hash) {
+			let parts = hash.split('/');
+			if (parts.length === 2) {
+				$('#time-name').text(parts[0] + '年' + parseInt(parts[1]) + '月');
+			} else {
+				$('#time-name').text(hash + '年');
+			}
+			$('.post-list-item').each((i, e) => {
+				let hasMatch = false;
+				let classList = $(e).attr('class').split(' ');
+				let hashForClass = hash.replace(/\//g, '-');
+				for (let j = 0; j < classList.length; j++) {
+					let cls = classList[j];
+					if (cls.startsWith('post-year-') || cls.startsWith('post-month-')) {
+						if (cls === 'post-year-' + hash || cls.startsWith('post-month-' + hashForClass)) {
+							hasMatch = true;
+							break;
+						}
+					}
+				}
+				$(e).toggle(hasMatch);
+			});
+		} else {
+			$('#time-name').text('全部');
+			$('.post-list-item').show();
+		}
+	}
+	$(window).on('hashchange', () => {
+		filterTime();
+	});
+	$(document).ready(() => {
+		filterTime();
+	});
+</script>

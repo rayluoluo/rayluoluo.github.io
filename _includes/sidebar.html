@@ -90,6 +90,34 @@
 	</ul>
 </div>
 
+<div class="sidebar-item sidebar-nav">
+	<ul class="nav">
+		<li class="nav-title">时间归档</li>
+		{% assign posts_by_year = site.posts | group_by_exp: "post", "post.date | date: '%Y'" %}
+		{% for year in posts_by_year %}
+			{% assign year_posts = year.items | size %}
+			<li class="year-item">
+				<a class="nav-item" href="{{ root_url }}/{{ site.time_dir }}#{{ year.name }}">
+					<span class="name">{{ year.name }}年</span>
+					<span class="count">({{ year_posts }})</span>
+				</a>
+				<ul class="nav year-nav">
+					{% assign posts_by_month = year.items | group_by_exp: "post", "post.date | date: '%m'" %}
+					{% for month in posts_by_month %}
+						{% assign month_posts = month.items | size %}
+						<li class="month-item">
+							<a class="nav-item" href="{{ root_url }}/{{ site.time_dir }}#{{ year.name }}/{{ month.name }}">
+								<span class="name">{{ month.name | remove_first: '0' }}月</span>
+								<span class="count">({{ month_posts }})</span>
+							</a>
+						</li>
+					{% endfor %}
+				</ul>
+			</li>
+		{% endfor %}
+	</ul>
+</div>
+
 <div class="sidebar-item sidebar-footer">
 	<div class="social-links">
 		{%- include social.html -%} 
