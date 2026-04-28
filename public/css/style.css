@@ -266,12 +266,20 @@ header.post-header {
 
 header.home {
 	text-align: left;
+	display: flex;
+	align-items: baseline;
+	gap: 15px;
 }
 
 .post-title {
 	font-size: 1.5em;
 	color: #111;
 	font-weight: bold;
+}
+
+.post-count {
+	font-size: 0.9em;
+	color: #666;
 }
 
 .post-date {

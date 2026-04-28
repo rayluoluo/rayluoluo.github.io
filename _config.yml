@@ -21,8 +21,9 @@
 title: 灿哥哥
 author: rayluoluo
 email: canweiluo@163.com
-description: >- # this means to ignore newlines until "baseurl:"
-  道阻且长，行则将至；行而不辍，未来可期
+description: |-
+  道阻且长，行则将至
+  行而不辍，未来可期
 baseurl: "" # the subpath of your site, e.g. /blog
 url: "https://rayluoluo.github.io" # the base hostname & protocol for your site
 
