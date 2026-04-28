@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="{{ page.lang | default: site.lang | default: "en" }}">
   {%- include head.html -%}
+  <script src="/public/js/jquery-3.4.1.slim.min.js"></script>
   <style>@import url(/public/css/syntax/{{ site.highlighter-theme }}.css);</style>
   <title>{{ site.title }}</title>
   <!-- <link href="/public/css/bootstrap.min.css" rel="stylesheet"> -->
@@ -15,7 +16,6 @@
 			{{ content }}
 		</div>
 	</div>
-  <script src="/public/js/jquery-3.4.1.slim.min.js"></script>
   <script src="/public/js/app.js"></script>
   </body>
 </html>
