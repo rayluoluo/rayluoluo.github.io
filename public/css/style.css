@@ -473,61 +473,46 @@ footer {
   }
 }
 
-.category-item {
+.year-item.category-year {
   position: relative;
   padding: 3px 0;
 }
 
-.category-item.depth-1 {
-  padding-left: 0;
+.year-item.category-year .nav-item {
+  font-size: 95%;
 }
 
-.category-item.depth-2 {
-  padding-left: 15px;
-}
-
-.category-item.depth-3 {
-  padding-left: 30px;
-}
-
-.category-item.depth-4 {
-  padding-left: 45px;
-}
-
-.category-item .nav-item {
-  font-size: 100%;
-}
-
-.category-item .badge {
-  font-size: 70%;
-}
-
-.category-item .count {
+.year-item.category-year .count {
   font-size: 70%;
   color: #888;
   margin-left: 4px;
 }
 
-.category-item::before {
+.category-nav {
+  margin-left: 15px;
+  padding-left: 0;
+  list-style-type: none;
+}
+
+.month-item.category-month {
+  position: relative;
+  padding: 2px 0;
+}
+
+.month-item.category-month::before {
   content: "├─ ";
   color: #555;
-  font-size: 80%;
+  font-size: 70%;
 }
 
-.category-item.depth-1::before {
-  content: "├─ ";
+.month-item.category-month .nav-item {
+  font-size: 85%;
 }
 
-.category-item.depth-2::before {
-  content: "│  ├─ ";
-}
-
-.category-item.depth-3::before {
-  content: "│  │  ├─ ";
-}
-
-.category-item.depth-4::before {
-  content: "│  │  │  ├─ ";
+.month-item.category-month .count {
+  font-size: 65%;
+  color: #777;
+  margin-left: 3px;
 }
 
 .tag-item {

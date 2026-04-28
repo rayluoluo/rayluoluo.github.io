@@ -65,12 +65,40 @@
 					{% endif %}
 				{% endfor %}
 				
-				<li class="category-item depth-{{ depth }}" data-category="{{ clean_path }}">
-					<a class="nav-item" href="{{ root_url }}/{{ site.category_dir }}#{{ clean_path | uri_escape }}">
-						<span class="name">{{ display_name }}</span>
-						<span class="count">({{ count }})</span>
-					</a>
-				</li>
+				{% if depth == 1 %}
+					<li class="year-item category-year">
+						<a class="nav-item" href="{{ root_url }}/{{ site.category_dir }}#{{ clean_path | uri_escape }}">
+							<span class="name">{{ display_name }}</span>
+							<span class="count">({{ count }})</span>
+						</a>
+						<ul class="nav year-nav category-nav">
+							{% for sub_path in sorted_paths %}
+								{% assign clean_sub_path = sub_path | remove: ']]]' %}
+								{% if clean_sub_path != '' %}
+									{% assign sub_parts = clean_sub_path | split: '/' %}
+									{% if sub_parts.size == 2 and sub_parts[0] == display_name %}
+										{% assign sub_display_name = sub_parts[1] %}
+										{% assign sub_count = 0 %}
+										{% assign sub_prefix = clean_sub_path | append: '/' %}
+										{% for category in site.categories %}
+											{% assign cat_name = category | first %}
+											{% if cat_name == clean_sub_path or cat_name contains sub_prefix %}
+												{% assign posts = category | last %}
+												{% assign sub_count = sub_count | plus: posts.size %}
+											{% endif %}
+										{% endfor %}
+										<li class="month-item category-month">
+											<a class="nav-item" href="{{ root_url }}/{{ site.category_dir }}#{{ clean_sub_path | uri_escape }}">
+												<span class="name">{{ sub_display_name }}</span>
+												<span class="count">({{ sub_count }})</span>
+											</a>
+										</li>
+									{% endif %}
+								{% endif %}
+							{% endfor %}
+						</ul>
+					</li>
+				{% endif %}
 			{% endif %}
 		{% endfor %}
 	</ul>
@@ -139,4 +167,3 @@
 	<p>Powered by <a href="https://github.com/jekyll/jekyll">Jekyll</a></p>
 	<p>@CopyRight <a href="https://github.com/rayluoluo/rayluoluo.github.io/blob/master/LICENSE">LICENSE </a>  </p>
 </div>
-
