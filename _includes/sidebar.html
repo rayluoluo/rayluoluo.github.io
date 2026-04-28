@@ -54,12 +54,38 @@
 				{% assign parts = clean_path | split: '/' %}
 				{% assign depth = parts.size %}
 				{% assign display_name = parts | last %}
+				
+				{% assign count = 0 %}
+				{% assign prefix = clean_path | append: '/' %}
+				{% for category in site.categories %}
+					{% assign cat_name = category | first %}
+					{% if cat_name == clean_path or cat_name contains prefix %}
+						{% assign posts = category | last %}
+						{% assign count = count | plus: posts.size %}
+					{% endif %}
+				{% endfor %}
+				
 				<li class="category-item depth-{{ depth }}" data-category="{{ clean_path }}">
 					<a class="nav-item" href="{{ root_url }}/{{ site.category_dir }}#{{ clean_path | uri_escape }}">
 						<span class="name">{{ display_name }}</span>
+						<span class="count">({{ count }})</span>
 					</a>
 				</li>
 			{% endif %}
+		{% endfor %}
+	</ul>
+</div>
+
+<div class="sidebar-item sidebar-nav">
+	<ul class="nav">
+		<li class="nav-title">标签</li>
+		{% for tag in site.tags %}
+			<li class="tag-item">
+				<a class="nav-item" href="{{ root_url }}/{{ site.tag_dir }}#{{ tag[0] | uri_escape }}">
+					<span class="name">{{ tag[0] }}</span>
+					<span class="count">({{ tag[1].size }})</span>
+				</a>
+			</li>
 		{% endfor %}
 	</ul>
 </div>

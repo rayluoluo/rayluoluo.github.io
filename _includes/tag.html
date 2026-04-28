@@ -1,0 +1,58 @@
+<article class="post">
+	<header class="post-header home">
+		<div class="post-title">标签 - <span id='tag-name'>全部</span></div>
+	</header>
+
+	<div class="post-content">
+		{%- if site.posts.size > 0 -%}
+		<ul class="post-list">
+			{%- for post in site.posts -%}
+                {% for tag in post.tags -%}
+                    <li class="post-list-item post-tag-{{ tag | slugify }}">
+                        {%- assign date_format = site.date_format | default: "%Y/%m/%d" -%}
+                        <span class="post-date">{{ post.date | date: date_format }}</span>
+                        <a class="post-link" href="{{ post.url | relative_url }}">
+                            {{ post.title | escape }}
+                        </a>
+                        {%- if site.show_excerpts -%}{{ post.excerpt }}{%- endif -%}
+                    </li>
+                {%- endfor -%}
+		  	{%- endfor -%}
+		</ul>
+	  	{%- endif -%}
+	</div>
+</article>
+
+<script src="/public/js/jquery-3.4.1.slim.min.js"></script>
+<script>
+	function filterTag() {
+		let hash = window.location.hash ? decodeURIComponent(window.location.hash.substring(1)) : '';
+		if (hash) {
+			$('#tag-name').text(hash);
+			$('.post-list-item').each((i, e) => {
+				let hasMatch = false;
+				let classList = $(e).attr('class').split(' ');
+				for (let j = 0; j < classList.length; j++) {
+					let cls = classList[j];
+					if (cls.startsWith('post-tag-')) {
+						let tag = cls.replace('post-tag-', '');
+						if (tag === hash || tag.startsWith(hash + '-')) {
+							hasMatch = true;
+							break;
+						}
+					}
+				}
+				$(e).toggle(hasMatch);
+			});
+		} else {
+			$('#tag-name').text('全部');
+			$('.post-list-item').show();
+		}
+	}
+	$(window).on('hashchange', () => {
+		filterTag();
+	});
+	$(document).ready(() => {
+		filterTag();
+	});
+</script>

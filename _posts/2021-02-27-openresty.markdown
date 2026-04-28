@@ -3,7 +3,8 @@ layout: post
 title:  openresty学习链接
 category: 技术/nginx
 tags: 
-  - nginx openresty
+  - nginx
+  - openresty
 ---
 
 # 学习链接
