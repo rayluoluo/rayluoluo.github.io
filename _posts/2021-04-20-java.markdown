@@ -5,8 +5,950 @@ category: 技术/Java
 tags: Java
 ---
 
-[Java全栈知识体系](https://www.pdai.tech/)
 
-[JavaGuide](https://javaguide.cn/)
 
-[JavaGuide 面试突击版](https://javaguide.cn/interview-preparation/backend-interview-plan.html)
+# 学习链接
+
+- [Java全栈知识体系](https://www.pdai.tech/)
+- [JavaGuide](https://javaguide.cn/)
+- [JavaGuide 面试突击版](https://javaguide.cn/interview-preparation/backend-interview-plan.html)
+
+# JVM
+![JVM-rough-structure-model](https://oss.javaguide.cn/github/javaguide/java/basis/jvm-rough-structure-model.png)
+
+## AOT 
+- JDK 9 引入了一种新的编译模式 `AOT(Ahead of Time Compilation)` 。和 JIT 不同的是，这种编译模式会在程序被**执行前**就将其编译成机器码，属于静态编译（C、 C++，Rust，Go 等语言就是静态编译）。AOT 避免了 JIT 预热等各方面的开销，可以提高 Java 程序的启动速度，避免预热时间长。并且，AOT 还能减少内存占用和增强 Java 程序的安全性（AOT 编译后的代码不容易被反编译和修改），特别适合云原生场景。
+- AOT 编译无法支持 Java 的一些动态特性，如反射、动态代理、动态加载、JNI（Java Native Interface）等。然而，很多框架和库（如 Spring、CGLIB）都用到了这些特性
+
+## 内存区域
+
+![JDK1.7内存区域](https://oss.javaguide.cn/github/javaguide/java/jvm/java-runtime-data-areas-jdk1.7.png)
+
+![JDK1.7内存区域](https://oss.javaguide.cn/github/javaguide/java/jvm/java-runtime-data-areas-jdk1.8.png)
+
+<pre>
+┌───────────────────────────────────────────────────────────── 操作系统物理内存
+│
+│  ┌─────────────────────────────────────────────────────── JVM进程内存
+│  │
+│  │  ┌───────────────────────────────────────────────── Java堆内存（Heap）
+│  │  │
+│  │  │  ┌─────────────────────── 新生代 Young（-Xmn控制整体大小）
+│  │  │  │  ┌──────────┐  ┌──────────────┐  ┌──────────────┐
+│  │  │  │  │ Eden区   │  │ Survivor S0  │  │ Survivor S1  │
+│  │  │  │  │ 新建对象 │  │ 存活对象1    │  │ 存活对象2    │
+│  │  │  │  └──────────┘  └──────────────┘  └──────────────┘
+│  │  │  └───────────────────────┴──────────────────────────┘
+│  │  │
+│  │  │  ┌─────────────────────── 老年代 Old
+│  │  │  │ 长期存活、晋升对象
+│  │  │  └───────────────────────
+│  │  │
+│  │  │  Java堆总上限由 -Xmx 控制
+│  │  │  Java堆初始大小由 -Xms 控制
+│  │  └─────────────────────────────────────────────────
+│  │
+│  │  ┌────────────────────────────── 元空间 Metaspace
+│  │  │ 存放类元信息、常量池、方法
+│  │  │ 参数：-XX:MetaspaceSize / -XX:MaxMetaspaceSize
+│  │  └──────────────────────────────
+│  │
+│  │  ┌────────────────────────────── 直接内存 Direct Memory（堆外）
+│  │  │ NIO ByteBuffer.allocateDirect() 使用
+│  │  │ 上限：-XX:MaxDirectMemorySize
+│  │  └──────────────────────────────
+│  │
+│  │  ┌────────────────────────────── 虚拟机栈 / 本地方法栈 / PC寄存器
+│  │  │ 每个线程私有，栈大小 -Xss
+│  │  └──────────────────────────────
+│  │
+│  │  ┌────────────────────────────── 本地方法内存（JNI、Native库）
+│  │  └──────────────────────────────
+│  └──────────────────────────────────────────────────────
+└─────────────────────────────────────────────────────────────
+</pre>
+
+1. -Xms
+
+   管控：Java 堆（Young+Old）初始分配大小
+   启动 JVM 时，操作系统直接给进程分配对应内存；
+   示例：-Xms256M → 程序刚启动堆就占用 256M；
+   若 -Xms = -Xmx，堆固定不变，不会动态扩容 / 缩容（你日志就是这种配置）。
+
+2. -Xmx
+
+   管控：Java 堆（Young+Old）最大容量上限
+   Young 区 + Old 区 总和不能超过该值；
+   示例：-Xmx256M，整个堆最多只能使用 256MB；
+   堆占用触达上限，无法分配新对象，触发 GC；GC 回收不出内存则 OOM。
+
+3. -Xmn
+
+   管控：新生代 Young 总容量上限（Eden + S0 + S1）
+   仅限制新生代，不影响老年代；
+   老年代可用空间 = -Xmx 总堆大小 − -Xmn；
+   G1 收集器不推荐手动指定-Xmn，G1 会自动动态调整新生代大小；Parallel/CMS/Serial GC 常用。
+   配套比例参数：-XX:SurvivorRatio=8 控制 Eden 和 Survivor 比例。
+
+4. -XX:MaxDirectMemorySize
+
+   Direct Memory 直接内存。管控：堆外直接内存最大值
+   不属于 Java 堆，不占用 -Xmx 空间；
+   NIO、Netty、文件 IO 大量使用allocateDirect时消耗；
+   不手动配置默认等于 -Xmx；
+   超出限制抛出 `java.lang.OutOfMemoryError: Direct buffer memory`。
+
+5. -Xss：
+
+    线程栈内存，每个线程独立，不属于堆、不属于直接内存；
+
+6. -XX:MaxMetaspaceSize
+
+    元空间上限，存放 Class 字节码，和堆隔离；
+
+8. -XX:G1HeapRegionSize
+
+    G1 堆分区大小，只是划分堆的粒度，不改变堆总容量。
+
+举例：
+```java
+JVM参数：-Xms1G -Xmx2G -Xmn300M -XX:MaxDirectMemorySize=512M
+```
+
+- Java 堆初始 1G，最大 2G；
+- 新生代固定 300M（Eden+S0+S1），老年代最大 = 2G-300M=1700M；
+- NIO 直接堆外内存最多使用 512M，独立于堆之外。
+
+## 直接内存等价于堆外内存？
+
+**不等价，是包含关系**，堆外内存是大集合，直接内存只是堆外内存的其中一种。
+
+1. 定义区分
+
+   **堆外内存（Native Memory）**
+
+   JVM 进程中，不在 Java 堆（-Xmx/-Xms）里、直接向操作系统 malloc/mmap 申请的内存，统称堆外内存。
+
+   包含所有下面这些区域：
+    - NIO DirectBuffer 分配的直接内存
+    - Metaspace / PermGen（方法区）
+    - CodeCache（JIT 机器码缓存）
+    - 线程栈：虚拟机栈、本地方法栈（-Xss）
+    - JNI 原生代码申请的内存
+    - JVM 内部缓冲区、符号表、管理内存
+    - Panama FFI 原生内存分配
+
+   **直接内存（Direct Memory）**
+
+   特指 ByteBuffer.allocateDirect() 分配的 IO 缓冲区，只是堆外内存的子集，唯一受 -XX:MaxDirectMemorySize 限制。
+
+2. 核心差异点
+
+   | 维度 | 堆外内存 | 直接内存 |
+       | --- | --- | --- |
+   | 范围 | 所有非 Java 堆内存，范围极大 | 仅 NIO DirectBuffer 缓冲区 |
+   | 管控参数 | 分多块独立参数：-Xss、MaxMetaspaceSize、ReservedCodeCacheSize 等 | 单一参数 -XX:MaxDirectMemorySize |
+   | 回收机制 | 各区域释放逻辑不同：栈随线程销毁、CodeCache 按需清理、元空间靠类卸载 GC | 依赖堆内 DirectByteBuffer 对象 GC，通过 Cleaner 释放 |
+   | OOM 异常 |	分多种：StackOverflow、Metaspace OOM、CodeCache 满	| java.lang.OutOfMemoryError: Direct buffer memory
+
+
+## GC
+
+一个可以触发JVM GC的Java程序
+```java
+package com.github.rayluoluo.snippet.jvm;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * JDK21 JVM GC演示程序
+ * VM启动参数建议（JDK21 ZGC）：
+ * -Xms256m -Xmx256m -XX:+UseZGC -Xlog:gc*:file=./logs/gc.zgc.log,stdout:time,uptime,level,tags:filesize=10M,filecount=5 -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=./dump/ -XX:OnOutOfMemoryError="taskkill /F /PID %p"
+ * 传统G1测试参数：-XX:+UseG1GC
+ * -Xms256m -Xmx256m -XX:+UseG1GC -Xlog:gc*:file=./logs/gc.g1gc.log:time,uptime,level,tags:filesize=10M,filecount=5 -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=./dump/ -XX:OnOutOfMemoryError="taskkill /F /PID %p"
+ */
+public class JvmGCDemo {
+    // 大对象数组，占用堆内存
+    static class BigObject {
+        private byte[] data;
+        public BigObject(int size) {
+            data = new byte[size];
+        }
+    }
+
+    // 全局集合：内存泄漏核心（强引用无法被GC回收）
+    private static final List<BigObject> leakList = new ArrayList<>();
+
+    public static void main(String[] args) throws InterruptedException {
+        System.out.println("==== JDK21 JVM GC 演示开始 ====");
+        // 1. 频繁创建短命对象 -> 触发Minor GC（新生代回收）
+        createShortLiveObj();
+        System.gc(); // 建议Full GC，不保证立即执行
+        Thread.sleep(2000);
+
+        // 2. 创建大量长期存活对象，晋升老年代
+        createLongLiveObj();
+        Thread.sleep(3000);
+
+        // 3. 模拟内存泄漏：全局集合持有对象，无法回收，最终OOM
+        try {
+            createLeakObject();
+        } catch (OutOfMemoryError e) {
+            System.err.println("发生OOM内存溢出！");
+            e.printStackTrace();
+            // 发生OOM自动dump堆快照，配合JVM参数 -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=dump.hprof
+        }
+    }
+
+    /** 短命对象：栈上分配/新生代快速回收 */
+    private static void createShortLiveObj() {
+        for (int i = 0; i < 1000000; i++) {
+            BigObject obj = new BigObject(1024); // 1KB小对象
+        }
+        System.out.println("短命对象创建完成，大概率触发Minor GC");
+    }
+
+    /** 长期存活对象：多次GC存活后晋升到老年代 */
+    private static void createLongLiveObj() throws InterruptedException {
+        List<BigObject> temp = new ArrayList<>();
+        for (int i = 0; i < 50000; i++) {
+            temp.add(new BigObject(1024 * 10)); // 10KB
+        }
+        System.gc();
+        Thread.sleep(1000);
+        System.out.println("长期对象完成，部分对象晋升老年代");
+    }
+
+    /** 内存泄漏：静态集合强引用，对象永远无法释放 */
+    private static void createLeakObject() {
+        while (true) {
+            leakList.add(new BigObject(1024 * 1024)); // 1MB对象持续放入静态集合
+        }
+    }
+}
+```
+
+### ZGC
+
+```shell
+java -Xms256m -Xmx256m -XX:+UseZGC "-Xlog:gc*:file=./logs/gc.zgc.log:time,uptime,level,tags:filesize=10M,filecount=5" -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=./dump/ "-XX:OnOutOfMemoryError=taskkill /F /PID %p" -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8 com.github.rayluoluo.snippet.jvm.JvmGCDemo
+```
+
+执行结果：
+
+``` java
+==== JDK21 JVM GC 演示开始 ====
+短命对象创建完成，大概率触发Minor GC
+java.lang.OutOfMemoryError: Java heap space
+Dumping heap to ./dump/\java_pid17392.hprof ...
+Heap dump file created [261981860 bytes in 0.082 secs]
+#
+# java.lang.OutOfMemoryError: Java heap space
+# -XX:OnOutOfMemoryError="taskkill /F /PID %p"
+#   Executing "taskkill /F /PID 17392"...
+SUCCESS: The process with PID 17392 has been terminated.
+```
+
+gc.zgc.log日志
+
+<pre>
+[2026-07-09T20:08:53.536+0800][0.008s][info][gc,init] Initializing The Z Garbage Collector
+[2026-07-09T20:08:53.536+0800][0.008s][info][gc,init] Version: 21.0.10+8-LTS-217 (release)
+[2026-07-09T20:08:53.536+0800][0.008s][info][gc,init] Using legacy single-generation mode
+[2026-07-09T20:08:53.536+0800][0.008s][info][gc,init] NUMA Support: Disabled
+[2026-07-09T20:08:53.536+0800][0.008s][info][gc,init] CPUs: 16 total, 16 available
+[2026-07-09T20:08:53.536+0800][0.008s][info][gc,init] Memory: 16108M
+[2026-07-09T20:08:53.536+0800][0.008s][info][gc,init] Large Page Support: Disabled
+[2026-07-09T20:08:53.537+0800][0.008s][info][gc,init] <span style="color:red;">GC Workers: 2 (dynamic)</span>
+[2026-07-09T20:08:53.537+0800][0.009s][info][gc,init] Address Space Type: Contiguous/Unrestricted/Complete
+[2026-07-09T20:08:53.537+0800][0.009s][info][gc,init] Address Space Size: 4096M x 3 = 12288M
+[2026-07-09T20:08:53.537+0800][0.009s][info][gc,init] Min Capacity: 256M
+[2026-07-09T20:08:53.537+0800][0.009s][info][gc,init] Initial Capacity: 256M
+[2026-07-09T20:08:53.537+0800][0.009s][info][gc,init] Max Capacity: 256M
+[2026-07-09T20:08:53.537+0800][0.009s][info][gc,init] Medium Page Size: 8M
+[2026-07-09T20:08:53.537+0800][0.009s][info][gc,init] Pre-touch: Disabled
+[2026-07-09T20:08:53.537+0800][0.009s][info][gc,init] Uncommit: Implicitly Disabled (-Xms equals -Xmx)
+[2026-07-09T20:08:53.543+0800][0.015s][info][gc,init] Runtime Workers: 2
+[2026-07-09T20:08:53.543+0800][0.015s][info][gc     ] Using The Z Garbage Collector
+[2026-07-09T20:08:53.551+0800][0.023s][info][gc,metaspace] CDS archive(s) mapped at: [0x000002040f000000-0x000002040fc90000-0x000002040fc90000), size 13172736, SharedBaseAddress: 0x000002040f000000, ArchiveRelocationMode: 1.
+[2026-07-09T20:08:53.551+0800][0.023s][info][gc,metaspace] Compressed class space mapped at: 0x0000020410000000-0x0000020450000000, reserved size: 1073741824
+[2026-07-09T20:08:53.551+0800][0.023s][info][gc,metaspace] Narrow klass base: 0x000002040f000000, Narrow klass shift: 0, Narrow klass range: 0x100000000
+[2026-07-09T20:08:53.662+0800][0.133s][info][gc,start    ] GC(0) Garbage Collection (System.gc())
+[2026-07-09T20:08:53.662+0800][0.133s][info][gc,task     ] GC(0) Using 2 workers
+[2026-07-09T20:08:53.662+0800][0.134s][info][gc,phases   ] <span style="color:red;">GC(0) Pause Mark Start 0.008ms</span>
+[2026-07-09T20:08:53.676+0800][0.147s][info][gc,phases   ] GC(0) Concurrent Mark 13.774ms
+[2026-07-09T20:08:53.676+0800][0.148s][info][gc,phases   ] <span style="color:red;">GC(0) Pause Mark End 0.023ms</span>
+[2026-07-09T20:08:53.676+0800][0.148s][info][gc,phases   ] GC(0) Concurrent Mark Free 0.001ms
+[2026-07-09T20:08:53.676+0800][0.148s][info][gc,phases   ] GC(0) Concurrent Process Non-Strong References 0.344ms
+[2026-07-09T20:08:53.676+0800][0.148s][info][gc,phases   ] GC(0) Concurrent Reset Relocation Set 0.000ms
+[2026-07-09T20:08:53.680+0800][0.152s][info][gc,phases   ] GC(0) Concurrent Select Relocation Set 3.777ms
+[2026-07-09T20:08:53.680+0800][0.152s][info][gc,phases   ] <span style="color:red;">GC(0) Pause Relocate Start 0.007ms</span>
+[2026-07-09T20:08:53.680+0800][0.152s][info][gc,phases   ] GC(0) Concurrent Relocate 0.369ms
+[2026-07-09T20:08:53.680+0800][0.152s][info][gc,load     ] GC(0) Load: 0.00/0.00/0.00
+[2026-07-09T20:08:53.680+0800][0.152s][info][gc,mmu      ] GC(0) MMU: 2ms/98.8%, 5ms/99.4%, 10ms/99.7%, 20ms/99.8%, 50ms/99.9%, 100ms/100.0%
+[2026-07-09T20:08:53.680+0800][0.152s][info][gc,marking  ] GC(0) Mark: 2 stripe(s), 1 proactive flush(es), 1 terminate flush(es), 0 completion(s), 0 continuation(s) 
+[2026-07-09T20:08:53.680+0800][0.152s][info][gc,marking  ] GC(0) Mark Stack Usage: 32M
+[2026-07-09T20:08:53.680+0800][0.152s][info][gc,nmethod  ] GC(0) NMethods: 222 registered, 14 unregistered
+[2026-07-09T20:08:53.680+0800][0.152s][info][gc,metaspace] GC(0) Metaspace: 0M used, 0M committed, 1088M reserved
+[2026-07-09T20:08:53.680+0800][0.152s][info][gc,ref      ] GC(0) Soft: 53 encountered, 0 discovered, 0 enqueued
+[2026-07-09T20:08:53.680+0800][0.152s][info][gc,ref      ] GC(0) Weak: 171 encountered, 100 discovered, 45 enqueued
+[2026-07-09T20:08:53.680+0800][0.152s][info][gc,ref      ] GC(0) Final: 0 encountered, 0 discovered, 0 enqueued
+[2026-07-09T20:08:53.681+0800][0.152s][info][gc,ref      ] GC(0) Phantom: 7 encountered, 5 discovered, 0 enqueued
+[2026-07-09T20:08:53.681+0800][0.152s][info][gc,reloc    ] <span style="color:red;">GC(0) Small Pages: 59 / 118M, Empty: 112M, Relocated: 0M, In-Place: 0</span>
+[2026-07-09T20:08:53.681+0800][0.152s][info][gc,reloc    ] GC(0) Medium Pages: 0 / 0M, Empty: 0M, Relocated: 0M, In-Place: 0
+[2026-07-09T20:08:53.681+0800][0.152s][info][gc,reloc    ] GC(0) Large Pages: 0 / 0M, Empty: 0M, Relocated: 0M, In-Place: 0
+[2026-07-09T20:08:53.681+0800][0.152s][info][gc,reloc    ] GC(0) Forwarding Usage: 0M
+[2026-07-09T20:08:53.681+0800][0.152s][info][gc,heap     ] GC(0) Min Capacity: 256M(100%)
+[2026-07-09T20:08:53.681+0800][0.152s][info][gc,heap     ] GC(0) Max Capacity: 256M(100%)
+[2026-07-09T20:08:53.681+0800][0.152s][info][gc,heap     ] GC(0) Soft Max Capacity: 256M(100%)
+[2026-07-09T20:08:53.681+0800][0.152s][info][gc,heap     ] GC(0)                Mark Start          Mark End        Relocate Start      Relocate End           High               Low         
+[2026-07-09T20:08:53.681+0800][0.152s][info][gc,heap     ] GC(0)  Capacity:      256M (100%)        256M (100%)        256M (100%)        256M (100%)        256M (100%)        256M (100%)   
+[2026-07-09T20:08:53.681+0800][0.152s][info][gc,heap     ] GC(0)      Free:      138M (54%)         138M (54%)         250M (98%)         252M (98%)         252M (98%)         138M (54%)    
+[2026-07-09T20:08:53.681+0800][0.152s][info][gc,heap     ] GC(0)      Used:      118M (46%)         118M (46%)           6M (2%)            4M (2%)          118M (46%)           4M (2%)     
+[2026-07-09T20:08:53.681+0800][0.152s][info][gc,heap     ] GC(0)      Live:         -                 0M (0%)            0M (0%)            0M (0%)             -                  -          
+[2026-07-09T20:08:53.681+0800][0.152s][info][gc,heap     ] GC(0) Allocated:         -                 0M (0%)            0M (0%)            0M (0%)             -                  -          
+[2026-07-09T20:08:53.681+0800][0.153s][info][gc,heap     ] <span style="color:red;">GC(0)   Garbage:         -               117M (46%)           5M (2%)            3M (1%)             -                  -          </span>
+[2026-07-09T20:08:53.681+0800][0.153s][info][gc,heap     ] GC(0) Reclaimed:         -                  -               112M (44%)         114M (45%)            -                  -          
+[2026-07-09T20:08:53.681+0800][0.153s][info][gc          ] <span style="color:red;">GC(0) Garbage Collection (System.gc()) 118M(46%)->4M(2%)</span>
+[2026-07-09T20:08:55.746+0800][2.218s][info][gc,start    ] <span style="color:red;">GC(1) Garbage Collection (Allocation Stall)</span>
+[2026-07-09T20:08:55.746+0800][2.218s][info][gc,ref      ] GC(1) Clearing All SoftReferences
+[2026-07-09T20:08:55.746+0800][2.218s][info][gc,task     ] GC(1) Using 2 workers
+[2026-07-09T20:08:55.746+0800][2.218s][info][gc,ref      ] GC(1) Clearing All SoftReferences
+[2026-07-09T20:08:55.746+0800][2.218s][info][gc,phases   ] GC(1) Pause Mark Start 0.034ms
+[2026-07-09T20:08:55.777+0800][2.248s][info][gc,phases   ] GC(1) Concurrent Mark 30.572ms
+[2026-07-09T20:08:55.777+0800][2.249s][info][gc,phases   ] GC(1) Pause Mark End 0.009ms
+[2026-07-09T20:08:55.777+0800][2.249s][info][gc,phases   ] GC(1) Concurrent Mark Free 0.001ms
+[2026-07-09T20:08:55.778+0800][2.250s][info][gc,phases   ] GC(1) Concurrent Process Non-Strong References 0.914ms
+[2026-07-09T20:08:55.778+0800][2.250s][info][gc,phases   ] GC(1) Concurrent Reset Relocation Set 0.001ms
+[2026-07-09T20:08:55.779+0800][2.251s][info][gc,phases   ] GC(1) Concurrent Select Relocation Set 1.288ms
+[2026-07-09T20:08:55.779+0800][2.251s][info][gc,phases   ] GC(1) Pause Relocate Start 0.006ms
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,phases   ] GC(1) Concurrent Relocate 0.340ms
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,load     ] GC(1) Load: 0.00/0.00/0.00
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,mmu      ] GC(1) MMU: 2ms/98.3%, 5ms/99.3%, 10ms/99.7%, 20ms/99.8%, 50ms/99.9%, 100ms/100.0%
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,marking  ] GC(1) Mark: 2 stripe(s), 2 proactive flush(es), 1 terminate flush(es), 0 completion(s), 0 continuation(s) 
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,marking  ] GC(1) Mark Stack Usage: 32M
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,nmethod  ] GC(1) NMethods: 224 registered, 15 unregistered
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,metaspace] GC(1) Metaspace: 0M used, 0M committed, 1088M reserved
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,ref      ] GC(1) Soft: 47 encountered, 37 discovered, 18 enqueued
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,ref      ] GC(1) Weak: 126 encountered, 70 discovered, 4 enqueued
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,ref      ] GC(1) Final: 0 encountered, 0 discovered, 0 enqueued
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,ref      ] GC(1) Phantom: 7 encountered, 5 discovered, 0 enqueued
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,reloc    ] GC(1) Small Pages: 128 / 256M, Empty: 0M, Relocated: 0M, In-Place: 2
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,reloc    ] GC(1) Medium Pages: 0 / 0M, Empty: 0M, Relocated: 0M, In-Place: 0
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,reloc    ] GC(1) Large Pages: 0 / 0M, Empty: 0M, Relocated: 0M, In-Place: 0
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,reloc    ] GC(1) Forwarding Usage: 0M
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,heap     ] GC(1) Min Capacity: 256M(100%)
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,heap     ] GC(1) Max Capacity: 256M(100%)
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,heap     ] GC(1) Soft Max Capacity: 256M(100%)
+[2026-07-09T20:08:55.780+0800][2.251s][info][gc,heap     ] GC(1)                Mark Start          Mark End        Relocate Start      Relocate End           High               Low         
+[2026-07-09T20:08:55.780+0800][2.252s][info][gc,heap     ] GC(1)  Capacity:      256M (100%)        256M (100%)        256M (100%)        256M (100%)        256M (100%)        256M (100%)   
+[2026-07-09T20:08:55.780+0800][2.252s][info][gc,heap     ] GC(1)      Free:        0M (0%)            0M (0%)            0M (0%)            0M (0%)            0M (0%)            0M (0%)     
+[2026-07-09T20:08:55.780+0800][2.252s][info][gc,heap     ] GC(1)      Used:      256M (100%)        256M (100%)        256M (100%)        256M (100%)        256M (100%)        256M (100%)   
+[2026-07-09T20:08:55.780+0800][2.252s][info][gc,heap     ] GC(1)      Live:         -               247M (97%)         247M (97%)         247M (97%)            -                  -          
+[2026-07-09T20:08:55.780+0800][2.252s][info][gc,heap     ] GC(1) Allocated:         -                 0M (0%)            0M (0%)            0M (0%)             -                  -          
+[2026-07-09T20:08:55.780+0800][2.252s][info][gc,heap     ] <span style="color:red;">GC(1)   Garbage:         -                 8M (3%)            8M (3%)            8M (3%)             -                  -          </span>
+[2026-07-09T20:08:55.780+0800][2.252s][info][gc,heap     ] GC(1) Reclaimed:         -                  -                 0M (0%)            0M (0%)             -                  -          
+[2026-07-09T20:08:55.780+0800][2.252s][info][gc          ] <span style="color:red;">GC(1) Garbage Collection (Allocation Stall) 256M(100%)->256M(100%)</span>
+[2026-07-09T20:08:55.780+0800][2.252s][info][gc          ] <span style="color:red;">Allocation Stall (main) 33.958ms</span>
+[2026-07-09T20:08:55.780+0800][2.252s][info][gc,start    ] GC(2) Garbage Collection (Allocation Stall)
+[2026-07-09T20:08:55.780+0800][2.252s][info][gc,ref      ] <span style="color:red;">GC(2) Clearing All SoftReferences</span>
+[2026-07-09T20:08:55.780+0800][2.252s][info][gc,task     ] GC(2) Using 2 workers
+[2026-07-09T20:08:55.780+0800][2.252s][info][gc,ref      ] GC(2) Clearing All SoftReferences
+[2026-07-09T20:08:55.780+0800][2.252s][info][gc,phases   ] GC(2) Pause Mark Start 0.019ms
+[2026-07-09T20:08:55.809+0800][2.280s][info][gc,phases   ] GC(2) Concurrent Mark 28.729ms
+[2026-07-09T20:08:55.809+0800][2.281s][info][gc,phases   ] GC(2) Pause Mark End 0.011ms
+[2026-07-09T20:08:55.809+0800][2.281s][info][gc,phases   ] GC(2) Concurrent Mark Free 0.001ms
+[2026-07-09T20:08:55.809+0800][2.281s][info][gc,phases   ] GC(2) Concurrent Process Non-Strong References 0.485ms
+[2026-07-09T20:08:55.809+0800][2.281s][info][gc,phases   ] GC(2) Concurrent Reset Relocation Set 0.001ms
+[2026-07-09T20:08:55.811+0800][2.282s][info][gc,phases   ] GC(2) Concurrent Select Relocation Set 1.214ms
+[2026-07-09T20:08:55.811+0800][2.282s][info][gc,phases   ] GC(2) Pause Relocate Start 0.004ms
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,phases   ] GC(2) Concurrent Relocate 0.340ms
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,load     ] GC(2) Load: 0.00/0.00/0.00
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,mmu      ] GC(2) MMU: 2ms/98.3%, 5ms/99.3%, 10ms/99.7%, 20ms/99.8%, 50ms/99.9%, 100ms/99.9%
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,marking  ] GC(2) Mark: 2 stripe(s), 1 proactive flush(es), 1 terminate flush(es), 0 completion(s), 0 continuation(s) 
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,marking  ] GC(2) Mark Stack Usage: 32M
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,nmethod  ] GC(2) NMethods: 224 registered, 15 unregistered
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,metaspace] GC(2) Metaspace: 0M used, 0M committed, 1088M reserved
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,ref      ] GC(2) Soft: 29 encountered, 19 discovered, 0 enqueued
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,ref      ] GC(2) Weak: 122 encountered, 65 discovered, 0 enqueued
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,ref      ] GC(2) Final: 0 encountered, 0 discovered, 0 enqueued
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,ref      ] GC(2) Phantom: 7 encountered, 5 discovered, 0 enqueued
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,reloc    ] GC(2) Small Pages: 128 / 256M, Empty: 0M, Relocated: 0M, In-Place: 2
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,reloc    ] GC(2) Medium Pages: 0 / 0M, Empty: 0M, Relocated: 0M, In-Place: 0
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,reloc    ] GC(2) Large Pages: 0 / 0M, Empty: 0M, Relocated: 0M, In-Place: 0
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,reloc    ] GC(2) Forwarding Usage: 0M
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,heap     ] GC(2) Min Capacity: 256M(100%)
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,heap     ] GC(2) Max Capacity: 256M(100%)
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,heap     ] GC(2) Soft Max Capacity: 256M(100%)
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,heap     ] GC(2)                Mark Start          Mark End        Relocate Start      Relocate End           High               Low         
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,heap     ] GC(2)  Capacity:      256M (100%)        256M (100%)        256M (100%)        256M (100%)        256M (100%)        256M (100%)   
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,heap     ] GC(2)      Free:        0M (0%)            0M (0%)            0M (0%)            0M (0%)            0M (0%)            0M (0%)     
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,heap     ] GC(2)      Used:      256M (100%)        256M (100%)        256M (100%)        256M (100%)        256M (100%)        256M (100%)   
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,heap     ] GC(2)      Live:         -               247M (97%)         247M (97%)         247M (97%)            -                  -          
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,heap     ] GC(2) Allocated:         -                 0M (0%)            0M (0%)            0M (0%)             -                  -          
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,heap     ] <span style="color:red;">GC(2)   Garbage:         -                 8M (3%)            8M (3%)            8M (3%)             -                  -          </span>
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc,heap     ] GC(2) Reclaimed:         -                  -                 0M (0%)            0M (0%)             -                  -          
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc          ] <span style="color:red;">GC(2) Garbage Collection (Allocation Stall) 256M(100%)->256M(100%)</span>
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc          ] Allocation Stall (main) 31.463ms
+[2026-07-09T20:08:55.811+0800][2.283s][info][gc          ] <span style="color:red;">Out Of Memory (main)</span>
+[2026-07-09T20:08:55.872+0800][2.344s][info][gc,start    ] <span style="color:red;">GC(3) Garbage Collection (Warmup)</span>
+[2026-07-09T20:08:55.872+0800][2.344s][info][gc,task     ] GC(3) Using 2 workers
+[2026-07-09T20:08:55.893+0800][2.366s][info][gc,phases   ] GC(3) Pause Mark Start 0.010ms
+</pre>
+
+**分析结果**：业务对象存活量 > 256M，ZGC 无论怎么回收都腾不出足够空间，分配停顿连续触发，最后回收逻辑直接中止，OOM 宕机。
+
+- GC0：手动触发 System.gc ()
+  - GC Workers=2：GC 并行工作线程只有 2 个，分配回收算力不足。
+  - 手动触发 `System.gc()`，标记前堆 118M，回收后仅剩 4M 存活对象，回收 114M 垃圾，本次 GC 非常健康；
+  - 停顿：Pause Mark Start 0.008ms、Pause Mark End 0.023ms、Pause Relocate Start 0.007ms，全部微秒级，符合 ZGC 低停顿特性。
+  - **不带 Pause、Concurrent 开头 = 并发阶段（这部分是 GC 线程和应用线程并发并行执行，不会阻塞业务，不计入 STW 停顿）**
+- GC1: 分配停滞 Allocation Stall
+  - Allocation Stall = 分配阻塞，`GC(1) ... 256M(100%)->256M(100%)` `Garbage: 8M(3%)，Reclaimed: 0M(0%)`，堆全程打满 256M，标记后仅 8M 垃圾，回收 0 内存；
+  - 日志打印 Clearing All SoftReferences：ZGC 尝试清空所有软引用释放内存，依然无空闲空间；
+  - 回收失败根源：堆内97% 都是强引用存活对象，只有 3% 垃圾，GC 无法释放出足够空间。
+- GC2：GC2 重复分配阻塞
+  - 和 GC1 行为完全一致，两次 GC 都无法腾出可用内存，直接抛出OOM
+- GC3：Warmup
+  - JVM 即将抛出 OOM，堆完全耗尽前，ZGC 强制发起最后一轮抢救式 GC，执行一次特殊的全量回收（Warmup GC），尝试： 
+    - 强制清理所有软引用、弱引用 
+    - 全堆完整标记 + 重定位，尽力释放任何可回收内存
+  - OOM 后 JVM 尝试最后一次 GC 抢救，已无意义
+
+### MMU (Minimum Mutator Utilization)
+
+- Mutator = 应用业务线程（执行你的 Java 代码、创建对象、处理请求）
+- MMU：最小应用线程利用率，衡量一段时间内业务线程能真正运行的时间占比，用来量化 GC 对业务的干扰程度。
+
+$$
+MMU = \frac{\text{业务线程运行时间}}{\text{业务线程运行时间} + \text{GC线程停顿或阻塞时间}}
+$$
+
+日志样例：
+```text
+MMU: 2ms/98.8%, 5ms/99.4%, 10ms/99.7%, 20ms/99.8%, 50ms/99.9%, 100ms/100.0%
+```
+
+- Xms：滑动观测窗口（2ms、5ms、10ms、20ms、50ms、100ms）
+- Y%：在这个窗口内，应用线程可用时间占比
+- GC0 MMU 2ms/98.8%：健康，极短窗口内业务可用率极高； 
+- GC1 MMU 2ms/98.3%：轻微变差，因为出现了 33ms Allocation Stall，挤占业务时间。
+
+MMU 统计包含两类阻塞：
+- GC Pause（Mark Start/End、Relocate Start 微秒 STW）
+- Allocation Stall 分配阻塞（线程等待 GC 完整一轮，严重拉低 MMU）
+
+日志里 MMU 小幅下降，根源就是 Allocation Stall。
+
+### G1GC
+
+```shell
+java.exe" -Xms256m -Xmx256m -XX:+UseG1GC "-Xlog:gc*:file=./logs/gc.g1gc.log:time,uptime,level,tags:filesize=10M,filecount=5" -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=./dump/ "-XX:OnOutOfMemoryError=taskkill /F /PID %p" -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8 com.github.rayluoluo.snippet.jvm.JvmGCDemo
+```
+
+执行结果：
+```java
+==== JDK21 JVM GC 演示开始 ====
+短命对象创建完成，大概率触发Minor GC
+java.lang.OutOfMemoryError: Java heap space
+Dumping heap to ./dump/\java_pid33432.hprof ...
+Heap dump file created [270200003 bytes in 0.078 secs]
+#
+# java.lang.OutOfMemoryError: Java heap space
+# -XX:OnOutOfMemoryError="taskkill /F /PID %p"
+#   Executing "taskkill /F /PID 33432"...
+SUCCESS: The process with PID 33432 has been terminated.
+```
+
+gc.g1gc.log日志
+
+<pre>
+[2026-07-10T00:50:44.974+0800][0.009s][info][gc,init] CardTable entry size: 512
+[2026-07-10T00:50:44.974+0800][0.009s][info][gc     ] Using G1
+[2026-07-10T00:50:44.975+0800][0.010s][info][gc,init] Version: 21.0.10+8-LTS-217 (release)
+[2026-07-10T00:50:44.975+0800][0.011s][info][gc,init] CPUs: 16 total, 16 available
+[2026-07-10T00:50:44.975+0800][0.011s][info][gc,init] Memory: 16108M
+[2026-07-10T00:50:44.975+0800][0.011s][info][gc,init] Large Page Support: Disabled
+[2026-07-10T00:50:44.975+0800][0.011s][info][gc,init] NUMA Support: Disabled
+[2026-07-10T00:50:44.975+0800][0.011s][info][gc,init] Compressed Oops: Enabled (32-bit)
+[2026-07-10T00:50:44.975+0800][0.011s][info][gc,init] Heap Region Size: 1M
+[2026-07-10T00:50:44.975+0800][0.011s][info][gc,init] Heap Min Capacity: 256M
+[2026-07-10T00:50:44.976+0800][0.011s][info][gc,init] Heap Initial Capacity: 256M
+[2026-07-10T00:50:44.976+0800][0.011s][info][gc,init] Heap Max Capacity: 256M
+[2026-07-10T00:50:44.976+0800][0.012s][info][gc,init] Pre-touch: Disabled
+[2026-07-10T00:50:44.976+0800][0.012s][info][gc,init] Parallel Workers: 13
+[2026-07-10T00:50:44.976+0800][0.012s][info][gc,init] <span style="color:red;">Concurrent Workers: 3</span>
+[2026-07-10T00:50:44.976+0800][0.012s][info][gc,init] Concurrent Refinement Workers: 13
+[2026-07-10T00:50:44.976+0800][0.012s][info][gc,init] Periodic GC: Disabled
+[2026-07-10T00:50:44.984+0800][0.019s][info][gc,metaspace] CDS archive(s) mapped at: [0x000002810f000000-0x000002810fc90000-0x000002810fc90000), size 13172736, SharedBaseAddress: 0x000002810f000000, ArchiveRelocationMode: 1.
+[2026-07-10T00:50:44.984+0800][0.019s][info][gc,metaspace] Compressed class space mapped at: 0x0000028110000000-0x0000028150000000, reserved size: 1073741824
+[2026-07-10T00:50:44.984+0800][0.019s][info][gc,metaspace] Narrow klass base: 0x000002810f000000, Narrow klass shift: 0, Narrow klass range: 0x100000000
+[2026-07-10T00:50:45.045+0800][0.080s][info][gc,start    ] <span style="color:red;">GC(0) Pause Young (Normal) (G1 Evacuation Pause)</span>
+[2026-07-10T00:50:45.045+0800][0.080s][info][gc,task     ] GC(0) Using 6 workers of 13 for evacuation
+[2026-07-10T00:50:45.047+0800][0.082s][info][gc,phases   ] GC(0)   Pre Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:45.047+0800][0.082s][info][gc,phases   ] GC(0)   Merge Heap Roots: 0.0ms
+[2026-07-10T00:50:45.047+0800][0.082s][info][gc,phases   ] GC(0)   Evacuate Collection Set: 1.1ms
+[2026-07-10T00:50:45.047+0800][0.082s][info][gc,phases   ] GC(0)   Post Evacuate Collection Set: 0.3ms
+[2026-07-10T00:50:45.047+0800][0.082s][info][gc,phases   ] GC(0)   Other: 0.2ms
+[2026-07-10T00:50:45.047+0800][0.082s][info][gc,heap     ] GC(0) Eden regions: 23->0(38)
+[2026-07-10T00:50:45.047+0800][0.082s][info][gc,heap     ] GC(0) Survivor regions: 0->1(3)
+[2026-07-10T00:50:45.047+0800][0.082s][info][gc,heap     ] GC(0) Old regions: 0->0
+[2026-07-10T00:50:45.047+0800][0.082s][info][gc,heap     ] GC(0) Humongous regions: 0->0
+[2026-07-10T00:50:45.047+0800][0.082s][info][gc,metaspace] GC(0) Metaspace: 651K(832K)->651K(832K) NonClass: 607K(704K)->607K(704K) Class: 43K(128K)->43K(128K)
+[2026-07-10T00:50:45.047+0800][0.082s][info][gc          ] <span style="color:red;">GC(0) Pause Young (Normal) (G1 Evacuation Pause) 23M->0M(256M) 1.967ms</span>
+[2026-07-10T00:50:45.047+0800][0.082s][info][gc,cpu      ] GC(0) User=0.00s Sys=0.00s Real=0.00s
+[2026-07-10T00:50:45.053+0800][0.089s][info][gc,start    ] GC(1) Pause Young (Normal) (G1 Evacuation Pause)
+[2026-07-10T00:50:45.053+0800][0.089s][info][gc,task     ] GC(1) Using 6 workers of 13 for evacuation
+[2026-07-10T00:50:45.055+0800][0.090s][info][gc,phases   ] GC(1)   Pre Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:45.055+0800][0.090s][info][gc,phases   ] GC(1)   Merge Heap Roots: 0.0ms
+[2026-07-10T00:50:45.055+0800][0.090s][info][gc,phases   ] GC(1)   Evacuate Collection Set: 0.8ms
+[2026-07-10T00:50:45.055+0800][0.090s][info][gc,phases   ] GC(1)   Post Evacuate Collection Set: 0.2ms
+[2026-07-10T00:50:45.055+0800][0.090s][info][gc,phases   ] GC(1)   Other: 0.1ms
+[2026-07-10T00:50:45.055+0800][0.090s][info][gc,heap     ] GC(1) Eden regions: 38->0(152)
+[2026-07-10T00:50:45.055+0800][0.090s][info][gc,heap     ] GC(1) Survivor regions: 1->1(5)
+[2026-07-10T00:50:45.055+0800][0.090s][info][gc,heap     ] GC(1) Old regions: 0->0
+[2026-07-10T00:50:45.055+0800][0.090s][info][gc,heap     ] GC(1) Humongous regions: 0->0
+[2026-07-10T00:50:45.055+0800][0.090s][info][gc,metaspace] GC(1) Metaspace: 773K(896K)->773K(896K) NonClass: 711K(768K)->711K(768K) Class: 61K(128K)->61K(128K)
+[2026-07-10T00:50:45.055+0800][0.090s][info][gc          ] GC(1) Pause Young (Normal) (G1 Evacuation Pause) 38M->0M(256M) 1.391ms
+[2026-07-10T00:50:45.055+0800][0.090s][info][gc,cpu      ] GC(1) User=0.00s Sys=0.00s Real=0.00s
+[2026-07-10T00:50:45.063+0800][0.098s][info][gc,start    ] <span style="color:red;">GC(2) Pause Full (System.gc())</span>
+[2026-07-10T00:50:45.063+0800][0.098s][info][gc,task     ] GC(2) Using 6 workers of 13 for full compaction
+[2026-07-10T00:50:45.063+0800][0.099s][info][gc,phases,start] GC(2) Phase 1: Mark live objects
+[2026-07-10T00:50:45.064+0800][0.099s][info][gc,phases      ] GC(2) Phase 1: Mark live objects 0.690ms
+[2026-07-10T00:50:45.064+0800][0.099s][info][gc,phases,start] GC(2) Phase 2: Prepare compaction
+[2026-07-10T00:50:45.064+0800][0.100s][info][gc,phases      ] GC(2) Phase 2: Prepare compaction 0.265ms
+[2026-07-10T00:50:45.064+0800][0.100s][info][gc,phases,start] GC(2) Phase 3: Adjust pointers
+[2026-07-10T00:50:45.065+0800][0.100s][info][gc,phases      ] GC(2) Phase 3: Adjust pointers 0.454ms
+[2026-07-10T00:50:45.065+0800][0.100s][info][gc,phases,start] GC(2) Phase 4: Compact heap
+[2026-07-10T00:50:45.065+0800][0.100s][info][gc,phases      ] GC(2) Phase 4: Compact heap 0.341ms
+[2026-07-10T00:50:45.065+0800][0.100s][info][gc,phases,start] GC(2) Phase 5: Reset Metadata
+[2026-07-10T00:50:45.065+0800][0.101s][info][gc,phases      ] GC(2) Phase 5: Reset Metadata 0.081ms
+[2026-07-10T00:50:45.066+0800][0.101s][info][gc,heap        ] GC(2) Eden regions: 56->0(153)
+[2026-07-10T00:50:45.066+0800][0.101s][info][gc,heap        ] GC(2) Survivor regions: 1->0(5)
+[2026-07-10T00:50:45.066+0800][0.101s][info][gc,heap        ] GC(2) Old regions: 0->2
+[2026-07-10T00:50:45.066+0800][0.101s][info][gc,heap        ] GC(2) Humongous regions: 0->0
+[2026-07-10T00:50:45.066+0800][0.101s][info][gc,metaspace   ] GC(2) Metaspace: 774K(896K)->774K(896K) NonClass: 713K(768K)->713K(768K) Class: 61K(128K)->61K(128K)
+[2026-07-10T00:50:45.066+0800][0.101s][info][gc             ] <span style="color:red;">GC(2) Pause Full (System.gc()) 56M->0M(256M) 3.080ms</span>
+[2026-07-10T00:50:45.066+0800][0.101s][info][gc,cpu         ] GC(2) User=0.00s Sys=0.00s Real=0.00s
+[2026-07-10T00:50:47.094+0800][2.129s][info][gc,start       ] <span style="color:red;">GC(3) Pause Young (Normal) (G1 Evacuation Pause)</span>
+[2026-07-10T00:50:47.094+0800][2.129s][info][gc,task        ] GC(3) Using 6 workers of 13 for evacuation
+[2026-07-10T00:50:47.118+0800][2.153s][info][gc,phases      ] GC(3)   Pre Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.118+0800][2.153s][info][gc,phases      ] GC(3)   Merge Heap Roots: 0.0ms
+[2026-07-10T00:50:47.119+0800][2.153s][info][gc,phases      ] GC(3)   Evacuate Collection Set: 23.8ms
+[2026-07-10T00:50:47.119+0800][2.153s][info][gc,phases      ] GC(3)   Post Evacuate Collection Set: 0.5ms
+[2026-07-10T00:50:47.119+0800][2.153s][info][gc,phases      ] GC(3)   Other: 0.1ms
+[2026-07-10T00:50:47.119+0800][2.153s][info][gc,heap        ] GC(3) Eden regions: 153->0(65)
+[2026-07-10T00:50:47.119+0800][2.153s][info][gc,heap        ] GC(3) Survivor regions: 0->20(20)
+[2026-07-10T00:50:47.119+0800][2.153s][info][gc,heap        ] <span style="color:red;">GC(3) Old regions: 2->135</span>
+[2026-07-10T00:50:47.119+0800][2.153s][info][gc,heap        ] GC(3) Humongous regions: 0->0
+[2026-07-10T00:50:47.119+0800][2.153s][info][gc,metaspace   ] GC(3) Metaspace: 785K(896K)->785K(896K) NonClass: 721K(768K)->721K(768K) Class: 63K(128K)->63K(128K)
+[2026-07-10T00:50:47.119+0800][2.153s][info][gc             ] <span style="color:red;">GC(3) Pause Young (Normal) (G1 Evacuation Pause) (Evacuation Failure) 153M->153M(256M) 24.728ms</span>
+[2026-07-10T00:50:47.119+0800][2.154s][info][gc,cpu         ] GC(3) User=0.00s Sys=0.09s Real=0.02s
+[2026-07-10T00:50:47.124+0800][2.159s][info][gc,start       ] GC(4) Pause Young (Concurrent Start) (G1 Evacuation Pause)
+[2026-07-10T00:50:47.124+0800][2.159s][info][gc,task        ] GC(4) Using 6 workers of 13 for evacuation
+[2026-07-10T00:50:47.127+0800][2.162s][info][gc,phases      ] GC(4)   Pre Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.127+0800][2.162s][info][gc,phases      ] GC(4)   Merge Heap Roots: 0.0ms
+[2026-07-10T00:50:47.127+0800][2.162s][info][gc,phases      ] GC(4)   Evacuate Collection Set: 2.3ms
+[2026-07-10T00:50:47.127+0800][2.162s][info][gc,phases      ] GC(4)   Post Evacuate Collection Set: 0.5ms
+[2026-07-10T00:50:47.127+0800][2.162s][info][gc,phases      ] GC(4)   Other: 0.1ms
+[2026-07-10T00:50:47.127+0800][2.162s][info][gc,heap        ] GC(4) Eden regions: 65->0(10)
+[2026-07-10T00:50:47.127+0800][2.162s][info][gc,heap        ] GC(4) Survivor regions: 20->11(11)
+[2026-07-10T00:50:47.127+0800][2.162s][info][gc,heap        ] GC(4) Old regions: 135->210
+[2026-07-10T00:50:47.127+0800][2.162s][info][gc,heap        ] GC(4) Humongous regions: 0->0
+[2026-07-10T00:50:47.127+0800][2.162s][info][gc,metaspace   ] GC(4) Metaspace: 785K(896K)->785K(896K) NonClass: 721K(768K)->721K(768K) Class: 63K(128K)->63K(128K)
+[2026-07-10T00:50:47.127+0800][2.162s][info][gc             ] <span style="color:red;">GC(4) Pause Young (Concurrent Start) (G1 Evacuation Pause) (Evacuation Failure) 218M->219M(256M) 3.162ms</span>
+[2026-07-10T00:50:47.127+0800][2.162s][info][gc,cpu         ] GC(4) User=0.00s Sys=0.00s Real=0.00s
+[2026-07-10T00:50:47.127+0800][2.162s][info][gc             ] GC(5) Concurrent Mark Cycle
+[2026-07-10T00:50:47.127+0800][2.162s][info][gc,marking     ] GC(5) Concurrent Scan Root Regions
+[2026-07-10T00:50:47.128+0800][2.163s][info][gc,marking     ] GC(5) Concurrent Scan Root Regions 0.654ms
+[2026-07-10T00:50:47.128+0800][2.163s][info][gc,marking     ] GC(5) Concurrent Mark
+[2026-07-10T00:50:47.128+0800][2.163s][info][gc,marking     ] GC(5) Concurrent Mark From Roots
+[2026-07-10T00:50:47.128+0800][2.163s][info][gc,task        ] GC(5) Using 3 workers of 3 for marking
+[2026-07-10T00:50:47.129+0800][2.164s][info][gc,marking     ] GC(5) Concurrent Mark From Roots 1.054ms
+[2026-07-10T00:50:47.129+0800][2.164s][info][gc,marking     ] GC(5) Concurrent Preclean
+[2026-07-10T00:50:47.129+0800][2.164s][info][gc,marking     ] GC(5) Concurrent Preclean 0.009ms
+[2026-07-10T00:50:47.129+0800][2.164s][info][gc,start       ] GC(5) Pause Remark
+[2026-07-10T00:50:47.129+0800][2.164s][info][gc             ] GC(5) Pause Remark 228M->228M(256M) 0.449ms
+[2026-07-10T00:50:47.129+0800][2.164s][info][gc,cpu         ] GC(5) User=0.00s Sys=0.00s Real=0.00s
+[2026-07-10T00:50:47.129+0800][2.165s][info][gc,marking     ] GC(5) Concurrent Mark 1.602ms
+[2026-07-10T00:50:47.129+0800][2.165s][info][gc,marking     ] GC(5) Concurrent Rebuild Remembered Sets and Scrub Regions
+[2026-07-10T00:50:47.129+0800][2.165s][info][gc,start       ] GC(6) Pause Young (Normal) (G1 Evacuation Pause)
+[2026-07-10T00:50:47.129+0800][2.165s][info][gc,task        ] GC(6) Using 6 workers of 13 for evacuation
+[2026-07-10T00:50:47.131+0800][2.166s][info][gc,phases      ] GC(6)   Pre Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.131+0800][2.166s][info][gc,phases      ] GC(6)   Merge Heap Roots: 0.0ms
+[2026-07-10T00:50:47.131+0800][2.166s][info][gc,phases      ] GC(6)   Evacuate Collection Set: 1.4ms
+[2026-07-10T00:50:47.131+0800][2.166s][info][gc,phases      ] GC(6)   Post Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.131+0800][2.166s][info][gc,phases      ] GC(6)   Other: 0.0ms
+[2026-07-10T00:50:47.131+0800][2.166s][info][gc,heap        ] GC(6) Eden regions: 10->0(9)
+[2026-07-10T00:50:47.131+0800][2.166s][info][gc,heap        ] GC(6) Survivor regions: 11->3(3)
+[2026-07-10T00:50:47.131+0800][2.166s][info][gc,heap        ] GC(6) Old regions: 210->228
+[2026-07-10T00:50:47.131+0800][2.166s][info][gc,heap        ] GC(6) Humongous regions: 0->0
+[2026-07-10T00:50:47.131+0800][2.166s][info][gc,metaspace   ] GC(6) Metaspace: 785K(896K)->785K(896K) NonClass: 721K(768K)->721K(768K) Class: 63K(128K)->63K(128K)
+[2026-07-10T00:50:47.131+0800][2.167s][info][gc             ] <span style="color:red;">GC(6) Pause Young (Normal) (G1 Evacuation Pause) 229M->229M(256M) 1.776ms</span>
+[2026-07-10T00:50:47.131+0800][2.167s][info][gc,cpu         ] GC(6) User=0.00s Sys=0.05s Real=0.00s
+[2026-07-10T00:50:47.132+0800][2.168s][info][gc,marking     ] GC(5) Concurrent Rebuild Remembered Sets and Scrub Regions 2.970ms
+[2026-07-10T00:50:47.132+0800][2.168s][info][gc,start       ] GC(5) Pause Cleanup
+[2026-07-10T00:50:47.132+0800][2.168s][info][gc             ] <span style="color:red;">GC(5) Pause Cleanup 236M->236M(256M) 0.119ms</span>
+[2026-07-10T00:50:47.132+0800][2.168s][info][gc,cpu         ] GC(5) User=0.00s Sys=0.00s Real=0.00s
+[2026-07-10T00:50:47.132+0800][2.168s][info][gc,marking     ] GC(5) Concurrent Clear Claimed Marks
+[2026-07-10T00:50:47.132+0800][2.168s][info][gc,marking     ] GC(5) Concurrent Clear Claimed Marks 0.014ms
+[2026-07-10T00:50:47.132+0800][2.168s][info][gc,marking     ] GC(5) Concurrent Cleanup for Next Mark
+[2026-07-10T00:50:47.133+0800][2.168s][info][gc,marking     ] GC(5) Concurrent Cleanup for Next Mark 0.194ms
+[2026-07-10T00:50:47.133+0800][2.168s][info][gc             ] GC(5) Concurrent Mark Cycle 5.826ms
+[2026-07-10T00:50:47.133+0800][2.168s][info][gc,start       ] <span style="color:red;">GC(7) Pause Young (Prepare Mixed) (G1 Evacuation Pause)</span>
+[2026-07-10T00:50:47.133+0800][2.168s][info][gc,task        ] GC(7) Using 6 workers of 13 for evacuation
+[2026-07-10T00:50:47.134+0800][2.169s][info][gc,phases      ] GC(7)   Pre Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.134+0800][2.169s][info][gc,phases      ] GC(7)   Merge Heap Roots: 0.0ms
+[2026-07-10T00:50:47.134+0800][2.169s][info][gc,phases      ] GC(7)   Evacuate Collection Set: 1.0ms
+[2026-07-10T00:50:47.134+0800][2.169s][info][gc,phases      ] GC(7)   Post Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.134+0800][2.169s][info][gc,phases      ] GC(7)   Other: 0.0ms
+[2026-07-10T00:50:47.134+0800][2.169s][info][gc,heap        ] GC(7) Eden regions: 9->0(10)
+[2026-07-10T00:50:47.134+0800][2.169s][info][gc,heap        ] GC(7) Survivor regions: 3->2(2)
+[2026-07-10T00:50:47.134+0800][2.169s][info][gc,heap        ] GC(7) Old regions: 228->238
+[2026-07-10T00:50:47.134+0800][2.169s][info][gc,heap        ] GC(7) Humongous regions: 0->0
+[2026-07-10T00:50:47.134+0800][2.169s][info][gc,metaspace   ] GC(7) Metaspace: 785K(896K)->785K(896K) NonClass: 721K(768K)->721K(768K) Class: 63K(128K)->63K(128K)
+[2026-07-10T00:50:47.134+0800][2.169s][info][gc             ] <span style="color:red;">GC(7) Pause Young (Prepare Mixed) (G1 Evacuation Pause) 238M->238M(256M) 1.315ms</span>
+[2026-07-10T00:50:47.134+0800][2.169s][info][gc,cpu         ] GC(7) User=0.00s Sys=0.00s Real=0.00s
+[2026-07-10T00:50:47.134+0800][2.170s][info][gc,start       ] <span style="color:red;">GC(8) Pause Young (Mixed) (G1 Evacuation Pause)</span>
+[2026-07-10T00:50:47.134+0800][2.170s][info][gc,task        ] GC(8) Using 6 workers of 13 for evacuation
+[2026-07-10T00:50:47.136+0800][2.171s][info][gc,phases      ] GC(8)   Pre Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.136+0800][2.171s][info][gc,phases      ] GC(8)   Merge Heap Roots: 0.0ms
+[2026-07-10T00:50:47.136+0800][2.171s][info][gc,phases      ] GC(8)   Evacuate Collection Set: 0.4ms
+[2026-07-10T00:50:47.136+0800][2.171s][info][gc,phases      ] GC(8)   Post Evacuate Collection Set: 0.2ms
+[2026-07-10T00:50:47.136+0800][2.171s][info][gc,phases      ] GC(8)   Other: 0.0ms
+[2026-07-10T00:50:47.136+0800][2.171s][info][gc,heap        ] GC(8) Eden regions: 10->0(3)
+[2026-07-10T00:50:47.136+0800][2.171s][info][gc,heap        ] GC(8) Survivor regions: 2->2(2)
+[2026-07-10T00:50:47.136+0800][2.171s][info][gc,heap        ] GC(8) Old regions: 238->249
+[2026-07-10T00:50:47.136+0800][2.171s][info][gc,heap        ] GC(8) Humongous regions: 0->0
+[2026-07-10T00:50:47.136+0800][2.171s][info][gc,metaspace   ] GC(8) Metaspace: 785K(896K)->785K(896K) NonClass: 721K(768K)->721K(768K) Class: 63K(128K)->63K(128K)
+[2026-07-10T00:50:47.136+0800][2.171s][info][gc             ] <span style="color:red;">GC(8) Pause Young (Mixed) (G1 Evacuation Pause) (Evacuation Failure) 248M->250M(256M) 0.810ms</span>
+[2026-07-10T00:50:47.136+0800][2.171s][info][gc,cpu         ] GC(8) User=0.00s Sys=0.00s Real=0.00s
+[2026-07-10T00:50:47.136+0800][2.171s][info][gc,start       ] <span style="color:red;">GC(9) Pause Young (Concurrent Start) (G1 Evacuation Pause)</span>
+[2026-07-10T00:50:47.136+0800][2.171s][info][gc,task        ] GC(9) Using 6 workers of 13 for evacuation
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,phases      ] GC(9)   Pre Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,phases      ] GC(9)   Merge Heap Roots: 0.0ms
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,phases      ] GC(9)   Evacuate Collection Set: 0.3ms
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,phases      ] GC(9)   Post Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,phases      ] GC(9)   Other: 0.0ms
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,heap        ] GC(9) Eden regions: 3->0(0)
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,heap        ] GC(9) Survivor regions: 2->1(1)
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,heap        ] GC(9) Old regions: 249->254
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,heap        ] GC(9) Humongous regions: 0->0
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,metaspace   ] GC(9) Metaspace: 785K(896K)->785K(896K) NonClass: 721K(768K)->721K(768K) Class: 63K(128K)->63K(128K)
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc             ] <span style="color:red;">GC(9) Pause Young (Concurrent Start) (G1 Evacuation Pause) (Evacuation Failure) 253M->254M(256M) 0.644ms</span>
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,cpu         ] GC(9) User=0.00s Sys=0.00s Real=0.00s
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc             ] <span style="color:red;">GC(10) Concurrent Mark Cycle</span>
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,ergo        ] Attempting full compaction
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,marking     ] GC(10) Concurrent Scan Root Regions
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc             ] <span style="color:red;">GC(11) Pause Full (G1 Compaction Pause)</span>
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,task        ] GC(11) Using 6 workers of 13 for full compaction
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,marking     ] GC(10) Concurrent Scan Root Regions 0.049ms
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,marking     ] GC(10) Concurrent Mark
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,marking     ] GC(10) Concurrent Mark From Roots
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,task        ] GC(10) Using 3 workers of 3 for marking
+[2026-07-10T00:50:47.137+0800][2.172s][info][gc,phases,start] GC(11) Phase 1: Mark live objects
+[2026-07-10T00:50:47.139+0800][2.174s][info][gc,phases      ] GC(11) Phase 1: Mark live objects 1.522ms
+[2026-07-10T00:50:47.139+0800][2.174s][info][gc,phases,start] GC(11) Phase 2: Prepare compaction
+[2026-07-10T00:50:47.139+0800][2.174s][info][gc,phases      ] GC(11) Phase 2: Prepare compaction 0.217ms
+[2026-07-10T00:50:47.139+0800][2.174s][info][gc,phases,start] GC(11) Phase 3: Adjust pointers
+[2026-07-10T00:50:47.140+0800][2.175s][info][gc,phases      ] GC(11) Phase 3: Adjust pointers 0.829ms
+[2026-07-10T00:50:47.140+0800][2.175s][info][gc,phases,start] GC(11) Phase 4: Compact heap
+[2026-07-10T00:50:47.140+0800][2.175s][info][gc,phases      ] GC(11) Phase 4: Compact heap 0.450ms
+[2026-07-10T00:50:47.140+0800][2.175s][info][gc,phases,start] GC(11) Phase 5: Reset Metadata
+[2026-07-10T00:50:47.141+0800][2.176s][info][gc,phases      ] GC(11) Phase 5: Reset Metadata 0.540ms
+[2026-07-10T00:50:47.141+0800][2.176s][info][gc,heap        ] GC(11) Eden regions: 0->0(4)
+[2026-07-10T00:50:47.141+0800][2.176s][info][gc,heap        ] GC(11) Survivor regions: 1->0(1)
+[2026-07-10T00:50:47.141+0800][2.176s][info][gc,heap        ] <span style="color:red;">GC(11) Old regions: 254->252</span>
+[2026-07-10T00:50:47.141+0800][2.176s][info][gc,heap        ] GC(11) Humongous regions: 0->0
+[2026-07-10T00:50:47.141+0800][2.176s][info][gc,metaspace   ] GC(11) Metaspace: 785K(896K)->773K(896K) NonClass: 721K(768K)->712K(768K) Class: 63K(128K)->60K(128K)
+[2026-07-10T00:50:47.141+0800][2.176s][info][gc             ] <span style="color:red;">GC(11) Pause Full (G1 Compaction Pause) 254M->249M(256M) 4.202ms</span>
+[2026-07-10T00:50:47.141+0800][2.176s][info][gc,cpu         ] GC(11) User=0.00s Sys=0.00s Real=0.00s
+[2026-07-10T00:50:47.141+0800][2.176s][info][gc,marking     ] GC(10) Concurrent Mark From Roots 4.268ms
+[2026-07-10T00:50:47.141+0800][2.176s][info][gc,marking     ] <span style="color:red;">GC(10) Concurrent Mark Abort</span>
+[2026-07-10T00:50:47.141+0800][2.176s][info][gc             ] GC(10) Concurrent Mark Cycle 4.389ms
+[2026-07-10T00:50:47.142+0800][2.176s][info][gc,start       ] GC(12) Pause Young (Normal) (G1 Evacuation Pause)
+[2026-07-10T00:50:47.142+0800][2.176s][info][gc,task        ] GC(12) Using 6 workers of 13 for evacuation
+[2026-07-10T00:50:47.142+0800][2.177s][info][gc,phases      ] GC(12)   Pre Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.142+0800][2.177s][info][gc,phases      ] GC(12)   Merge Heap Roots: 0.0ms
+[2026-07-10T00:50:47.142+0800][2.177s][info][gc,phases      ] GC(12)   Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.142+0800][2.177s][info][gc,phases      ] GC(12)   Post Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.142+0800][2.177s][info][gc,phases      ] GC(12)   Other: 0.0ms
+[2026-07-10T00:50:47.142+0800][2.177s][info][gc,heap        ] GC(12) Eden regions: 4->0(0)
+[2026-07-10T00:50:47.142+0800][2.177s][info][gc,heap        ] GC(12) Survivor regions: 0->0(0)
+[2026-07-10T00:50:47.142+0800][2.177s][info][gc,heap        ] GC(12) Old regions: 252->256
+[2026-07-10T00:50:47.142+0800][2.177s][info][gc,heap        ] GC(12) Humongous regions: 0->0
+[2026-07-10T00:50:47.142+0800][2.177s][info][gc,metaspace   ] GC(12) Metaspace: 773K(896K)->773K(896K) NonClass: 712K(768K)->712K(768K) Class: 60K(128K)->60K(128K)
+[2026-07-10T00:50:47.142+0800][2.177s][info][gc             ] <span style="color:red;">GC(12) Pause Young (Normal) (G1 Evacuation Pause) (Evacuation Failure) 253M->253M(256M) 0.444ms</span>
+[2026-07-10T00:50:47.142+0800][2.177s][info][gc,cpu         ] GC(12) User=0.00s Sys=0.00s Real=0.00s
+[2026-07-10T00:50:47.142+0800][2.177s][info][gc,ergo        ] Attempting full compaction
+[2026-07-10T00:50:47.142+0800][2.177s][info][gc,start       ] <span style="color:red;">GC(13) Pause Full (G1 Compaction Pause)</span>
+[2026-07-10T00:50:47.142+0800][2.177s][info][gc,task        ] GC(13) Using 6 workers of 13 for full compaction
+[2026-07-10T00:50:47.142+0800][2.177s][info][gc,phases,start] GC(13) Phase 1: Mark live objects
+[2026-07-10T00:50:47.143+0800][2.178s][info][gc,phases      ] GC(13) Phase 1: Mark live objects 1.103ms
+[2026-07-10T00:50:47.143+0800][2.178s][info][gc,phases,start] GC(13) Phase 2: Prepare compaction
+[2026-07-10T00:50:47.143+0800][2.178s][info][gc,phases      ] GC(13) Phase 2: Prepare compaction 0.049ms
+[2026-07-10T00:50:47.143+0800][2.178s][info][gc,phases,start] GC(13) Phase 3: Adjust pointers
+[2026-07-10T00:50:47.144+0800][2.179s][info][gc,phases      ] GC(13) Phase 3: Adjust pointers 0.522ms
+[2026-07-10T00:50:47.144+0800][2.179s][info][gc,phases,start] GC(13) Phase 4: Compact heap
+[2026-07-10T00:50:47.144+0800][2.179s][info][gc,phases      ] GC(13) Phase 4: Compact heap 0.203ms
+[2026-07-10T00:50:47.144+0800][2.179s][info][gc,phases,start] GC(13) Phase 5: Reset Metadata
+[2026-07-10T00:50:47.144+0800][2.179s][info][gc,phases      ] GC(13) Phase 5: Reset Metadata 0.419ms
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,heap        ] GC(13) Eden regions: 0->0(2)
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,heap        ] GC(13) Survivor regions: 0->0(0)
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,heap        ] GC(13) Old regions: 256->254
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,heap        ] GC(13) Humongous regions: 0->0
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,metaspace   ] GC(13) Metaspace: 773K(896K)->773K(896K) NonClass: 712K(768K)->712K(768K) Class: 60K(128K)->60K(128K)
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc             ] <span style="color:red;">GC(13) Pause Full (G1 Compaction Pause) 253M->253M(256M) 2.766ms</span>
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,cpu         ] GC(13) User=0.00s Sys=0.00s Real=0.00s
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,start       ] GC(14) Pause Young (Concurrent Start) (G1 Evacuation Pause)
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,task        ] GC(14) Using 6 workers of 13 for evacuation
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,phases      ] GC(14)   Pre Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,phases      ] GC(14)   Merge Heap Roots: 0.0ms
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,phases      ] GC(14)   Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,phases      ] GC(14)   Post Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,phases      ] GC(14)   Other: 0.0ms
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,heap        ] GC(14) Eden regions: 2->0(0)
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,heap        ] GC(14) Survivor regions: 0->0(0)
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,heap        ] GC(14) Old regions: 254->256
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,heap        ] GC(14) Humongous regions: 0->0
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,metaspace   ] GC(14) Metaspace: 773K(896K)->773K(896K) NonClass: 712K(768K)->712K(768K) Class: 60K(128K)->60K(128K)
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc             ] <span style="color:red;">GC(14) Pause Young (Concurrent Start) (G1 Evacuation Pause) (Evacuation Failure) 255M->255M(256M) 0.427ms</span>
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,cpu         ] GC(14) User=0.00s Sys=0.00s Real=0.00s
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc             ] GC(15) Concurrent Mark Cycle
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,ergo        ] Attempting full compaction
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,marking     ] GC(15) Concurrent Scan Root Regions
+[2026-07-10T00:50:47.145+0800][2.180s][info][gc,start       ] GC(16) Pause Full (G1 Compaction Pause)
+[2026-07-10T00:50:47.146+0800][2.180s][info][gc,marking     ] GC(15) Concurrent Scan Root Regions 0.045ms
+[2026-07-10T00:50:47.146+0800][2.180s][info][gc,task        ] GC(16) Using 6 workers of 13 for full compaction
+[2026-07-10T00:50:47.146+0800][2.180s][info][gc,marking     ] GC(15) Concurrent Mark
+[2026-07-10T00:50:47.146+0800][2.180s][info][gc,marking     ] GC(15) Concurrent Mark From Roots
+[2026-07-10T00:50:47.146+0800][2.180s][info][gc,task        ] GC(15) Using 3 workers of 3 for marking
+[2026-07-10T00:50:47.146+0800][2.181s][info][gc,phases,start] GC(16) Phase 1: Mark live objects
+[2026-07-10T00:50:47.147+0800][2.182s][info][gc,phases      ] GC(16) Phase 1: Mark live objects 1.012ms
+[2026-07-10T00:50:47.147+0800][2.182s][info][gc,phases,start] GC(16) Phase 2: Prepare compaction
+[2026-07-10T00:50:47.147+0800][2.182s][info][gc,phases      ] GC(16) Phase 2: Prepare compaction 0.027ms
+[2026-07-10T00:50:47.147+0800][2.182s][info][gc,phases,start] GC(16) Phase 3: Adjust pointers
+[2026-07-10T00:50:47.147+0800][2.182s][info][gc,phases      ] GC(16) Phase 3: Adjust pointers 0.458ms
+[2026-07-10T00:50:47.147+0800][2.182s][info][gc,phases,start] GC(16) Phase 4: Compact heap
+[2026-07-10T00:50:47.147+0800][2.182s][info][gc,phases      ] GC(16) Phase 4: Compact heap 0.026ms
+[2026-07-10T00:50:47.147+0800][2.182s][info][gc,phases,start] GC(16) Phase 5: Reset Metadata
+[2026-07-10T00:50:47.148+0800][2.183s][info][gc,phases      ] GC(16) Phase 5: Reset Metadata 0.406ms
+[2026-07-10T00:50:47.148+0800][2.183s][info][gc,heap        ] GC(16) Eden regions: 0->0(0)
+[2026-07-10T00:50:47.148+0800][2.183s][info][gc,heap        ] GC(16) Survivor regions: 0->0(0)
+[2026-07-10T00:50:47.148+0800][2.183s][info][gc,heap        ] <span style="color:red;">GC(16) Old regions: 256->256</span>
+[2026-07-10T00:50:47.148+0800][2.183s][info][gc,heap        ] GC(16) Humongous regions: 0->0
+[2026-07-10T00:50:47.148+0800][2.183s][info][gc,metaspace   ] GC(16) Metaspace: 773K(896K)->773K(896K) NonClass: 712K(768K)->712K(768K) Class: 60K(128K)->60K(128K)
+[2026-07-10T00:50:47.148+0800][2.183s][info][gc             ] GC(16) Pause Full (G1 Compaction Pause) 255M->255M(256M) 2.450ms
+[2026-07-10T00:50:47.148+0800][2.183s][info][gc,cpu         ] GC(16) User=0.05s Sys=0.02s Real=0.00s
+[2026-07-10T00:50:47.148+0800][2.183s][info][gc,ergo        ] Attempting maximal full compaction clearing soft references
+[2026-07-10T00:50:47.148+0800][2.183s][info][gc,start       ] GC(17) Pause Full (G1 Compaction Pause)
+[2026-07-10T00:50:47.148+0800][2.183s][info][gc,task        ] GC(17) Using 6 workers of 13 for full compaction
+[2026-07-10T00:50:47.148+0800][2.183s][info][gc,phases,start] GC(17) Phase 1: Mark live objects
+[2026-07-10T00:50:47.149+0800][2.184s][info][gc,phases      ] GC(17) Phase 1: Mark live objects 0.976ms
+[2026-07-10T00:50:47.149+0800][2.184s][info][gc,phases,start] GC(17) Phase 2: Prepare compaction
+[2026-07-10T00:50:47.150+0800][2.185s][info][gc,phases      ] GC(17) Phase 2: Prepare compaction 0.544ms
+[2026-07-10T00:50:47.150+0800][2.185s][info][gc,phases,start] GC(17) Phase 3: Adjust pointers
+[2026-07-10T00:50:47.150+0800][2.185s][info][gc,phases      ] GC(17) Phase 3: Adjust pointers 0.456ms
+[2026-07-10T00:50:47.150+0800][2.185s][info][gc,phases,start] GC(17) Phase 4: Compact heap
+[2026-07-10T00:50:47.159+0800][2.195s][info][gc,phases      ] GC(17) Phase 4: Compact heap 9.728ms
+[2026-07-10T00:50:47.159+0800][2.195s][info][gc,phases,start] GC(17) Phase 5: Reset Metadata
+[2026-07-10T00:50:47.160+0800][2.195s][info][gc,phases      ] GC(17) Phase 5: Reset Metadata 0.163ms
+[2026-07-10T00:50:47.160+0800][2.195s][info][gc,heap        ] GC(17) Eden regions: 0->0(1)
+[2026-07-10T00:50:47.160+0800][2.195s][info][gc,heap        ] GC(17) Survivor regions: 0->0(0)
+[2026-07-10T00:50:47.160+0800][2.195s][info][gc,heap        ] <span style="color:red;">GC(17) Old regions: 256->255</span>
+[2026-07-10T00:50:47.160+0800][2.196s][info][gc,heap        ] GC(17) Humongous regions: 0->0
+[2026-07-10T00:50:47.160+0800][2.196s][info][gc,metaspace   ] GC(17) Metaspace: 773K(896K)->773K(896K) NonClass: 712K(768K)->712K(768K) Class: 60K(128K)->60K(128K)
+[2026-07-10T00:50:47.160+0800][2.196s][info][gc             ] <span style="color:red;">GC(17) Pause Full (G1 Compaction Pause) 255M->253M(256M) 12.704ms</span>
+[2026-07-10T00:50:47.160+0800][2.196s][info][gc,cpu         ] GC(17) User=0.00s Sys=0.00s Real=0.01s
+[2026-07-10T00:50:47.160+0800][2.196s][info][gc,start       ] GC(18) Pause Young (Normal) (G1 Evacuation Pause)
+[2026-07-10T00:50:47.160+0800][2.196s][info][gc,marking     ] GC(15) Concurrent Mark From Roots 15.285ms
+[2026-07-10T00:50:47.160+0800][2.196s][info][gc,task        ] GC(18) Using 6 workers of 13 for evacuation
+[2026-07-10T00:50:47.161+0800][2.196s][info][gc,phases      ] GC(18)   Pre Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.161+0800][2.196s][info][gc,phases      ] GC(18)   Merge Heap Roots: 0.0ms
+[2026-07-10T00:50:47.161+0800][2.196s][info][gc,phases      ] GC(18)   Evacuate Collection Set: 0.1ms
+[2026-07-10T00:50:47.161+0800][2.196s][info][gc,phases      ] GC(18)   Post Evacuate Collection Set: 0.2ms
+[2026-07-10T00:50:47.161+0800][2.196s][info][gc,phases      ] GC(18)   Other: 0.1ms
+[2026-07-10T00:50:47.161+0800][2.196s][info][gc,heap        ] GC(18) Eden regions: 1->0(0)
+[2026-07-10T00:50:47.161+0800][2.196s][info][gc,heap        ] GC(18) Survivor regions: 0->0(0)
+[2026-07-10T00:50:47.161+0800][2.196s][info][gc,heap        ] <span style="color:red;">GC(18) Old regions: 255->256</span>
+[2026-07-10T00:50:47.161+0800][2.196s][info][gc,heap        ] GC(18) Humongous regions: 0->0
+[2026-07-10T00:50:47.161+0800][2.196s][info][gc,metaspace   ] GC(18) Metaspace: 773K(896K)->773K(896K) NonClass: 712K(768K)->712K(768K) Class: 60K(128K)->60K(128K)
+[2026-07-10T00:50:47.161+0800][2.196s][info][gc             ] GC(18) Pause Young (Normal) (G1 Evacuation Pause) (Evacuation Failure) 254M->254M(256M) 0.638ms
+[2026-07-10T00:50:47.161+0800][2.196s][info][gc,cpu         ] GC(18) User=0.00s Sys=0.00s Real=0.00s
+[2026-07-10T00:50:47.161+0800][2.196s][info][gc,ergo        ] Attempting full compaction
+[2026-07-10T00:50:47.161+0800][2.196s][info][gc,start       ] <span style="color:red;">GC(19) Pause Full (G1 Compaction Pause)</span>
+[2026-07-10T00:50:47.161+0800][2.196s][info][gc,task        ] GC(19) Using 6 workers of 13 for full compaction
+[2026-07-10T00:50:47.161+0800][2.197s][info][gc,phases,start] GC(19) Phase 1: Mark live objects
+[2026-07-10T00:50:47.163+0800][2.198s][info][gc,phases      ] GC(19) Phase 1: Mark live objects 1.537ms
+[2026-07-10T00:50:47.163+0800][2.198s][info][gc,phases,start] GC(19) Phase 2: Prepare compaction
+[2026-07-10T00:50:47.163+0800][2.198s][info][gc,phases      ] GC(19) Phase 2: Prepare compaction 0.050ms
+[2026-07-10T00:50:47.163+0800][2.198s][info][gc,phases,start] GC(19) Phase 3: Adjust pointers
+[2026-07-10T00:50:47.164+0800][2.199s][info][gc,phases      ] GC(19) Phase 3: Adjust pointers 0.793ms
+[2026-07-10T00:50:47.164+0800][2.199s][info][gc,phases,start] GC(19) Phase 4: Compact heap
+[2026-07-10T00:50:47.164+0800][2.199s][info][gc,phases      ] GC(19) Phase 4: Compact heap 0.042ms
+[2026-07-10T00:50:47.164+0800][2.199s][info][gc,phases,start] GC(19) Phase 5: Reset Metadata
+[2026-07-10T00:50:47.164+0800][2.199s][info][gc,phases      ] GC(19) Phase 5: Reset Metadata 0.370ms
+[2026-07-10T00:50:47.164+0800][2.200s][info][gc,heap        ] GC(19) Eden regions: 0->0(0)
+[2026-07-10T00:50:47.164+0800][2.200s][info][gc,heap        ] GC(19) Survivor regions: 0->0(0)
+[2026-07-10T00:50:47.164+0800][2.200s][info][gc,heap        ] <span style="color:red;">GC(19) Old regions: 256->256</span>
+[2026-07-10T00:50:47.164+0800][2.200s][info][gc,heap        ] GC(19) Humongous regions: 0->0
+[2026-07-10T00:50:47.164+0800][2.200s][info][gc,metaspace   ] GC(19) Metaspace: 773K(896K)->773K(896K) NonClass: 712K(768K)->712K(768K) Class: 60K(128K)->60K(128K)
+[2026-07-10T00:50:47.164+0800][2.200s][info][gc             ] <span style="color:red;">GC(19) Pause Full (G1 Compaction Pause) 254M->254M(256M) 3.459ms</span>
+[2026-07-10T00:50:47.164+0800][2.200s][info][gc,cpu         ] GC(19) User=0.05s Sys=0.02s Real=0.00s
+[2026-07-10T00:50:47.165+0800][2.200s][info][gc,ergo        ] Attempting maximal full compaction clearing soft references
+[2026-07-10T00:50:47.165+0800][2.200s][info][gc,start       ] GC(20) Pause Full (G1 Compaction Pause)
+[2026-07-10T00:50:47.165+0800][2.200s][info][gc,task        ] GC(20) Using 6 workers of 13 for full compaction
+[2026-07-10T00:50:47.165+0800][2.200s][info][gc,phases,start] GC(20) Phase 1: Mark live objects
+[2026-07-10T00:50:47.166+0800][2.201s][info][gc,phases      ] GC(20) Phase 1: Mark live objects 1.195ms
+[2026-07-10T00:50:47.166+0800][2.201s][info][gc,phases,start] GC(20) Phase 2: Prepare compaction
+[2026-07-10T00:50:47.167+0800][2.202s][info][gc,phases      ] GC(20) Phase 2: Prepare compaction 0.642ms
+[2026-07-10T00:50:47.167+0800][2.202s][info][gc,phases,start] GC(20) Phase 3: Adjust pointers
+[2026-07-10T00:50:47.167+0800][2.202s][info][gc,phases      ] GC(20) Phase 3: Adjust pointers 0.392ms
+[2026-07-10T00:50:47.167+0800][2.202s][info][gc,phases,start] GC(20) Phase 4: Compact heap
+[2026-07-10T00:50:47.167+0800][2.203s][info][gc,phases      ] GC(20) Phase 4: Compact heap 0.477ms
+[2026-07-10T00:50:47.167+0800][2.203s][info][gc,phases,start] GC(20) Phase 5: Reset Metadata
+[2026-07-10T00:50:47.168+0800][2.203s][info][gc,phases      ] GC(20) Phase 5: Reset Metadata 0.132ms
+[2026-07-10T00:50:47.168+0800][2.203s][info][gc,heap        ] GC(20) Eden regions: 0->0(0)
+[2026-07-10T00:50:47.168+0800][2.203s][info][gc,heap        ] GC(20) Survivor regions: 0->0(0)
+[2026-07-10T00:50:47.168+0800][2.203s][info][gc,heap        ] <span style="color:red;">GC(20) Old regions: 256->256</span>
+[2026-07-10T00:50:47.168+0800][2.203s][info][gc,heap        ] GC(20) Humongous regions: 0->0
+[2026-07-10T00:50:47.168+0800][2.203s][info][gc,metaspace   ] GC(20) Metaspace: 773K(896K)->773K(896K) NonClass: 712K(768K)->712K(768K) Class: 60K(128K)->60K(128K)
+[2026-07-10T00:50:47.168+0800][2.203s][info][gc             ] <span style="color:red;">GC(20) Pause Full (G1 Compaction Pause) 254M->254M(256M) 3.512ms</span>
+[2026-07-10T00:50:47.168+0800][2.203s][info][gc,cpu         ] GC(20) User=0.00s Sys=0.00s Real=0.00s
+[2026-07-10T00:50:47.168+0800][2.203s][info][gc,marking     ] <span style="color:red;">GC(15) Concurrent Mark Abort</span>
+[2026-07-10T00:50:47.168+0800][2.203s][info][gc             ] GC(15) Concurrent Mark Cycle 23.120ms
+</pre>
+
+**分析结果**：
+
+日志里多次`Concurrent Mark Cycle`，但堆 256M 太小，标记没做完就打满堆，被 Full GC 打断（Concurrent Mark Abort）
+
+- GC0~GC2: 正常 Young GC
+  - GC0/GC1: 正常 Young GC，堆占用 23M→38M，停顿 1~2ms，无压力
+  - GC2: 手动 System.gc () 触发 Full GC，56M 全量压缩，停顿 3ms
+
+- GC3: 开始爆发内存危机（核心拐点）
+  - 大量对象直接涌入老年代，Old 区瞬间从 2→135 个 region（每个 1M，占用 135M）；
+  - 频繁 Evacuation Failure，Young GC 失效
+  - Young GC 停顿飙升至 24ms，响应延迟恶化。
+
+- GC4~GC9：持续 Evacuation Failure，老年代持续填满
+  - 每一次 Young GC 都转移失败，老年代 region 一路涨到 254 个（占用 254M）
+
+- GC10 起：疯狂 Full GC 压缩
+  - 并发标记循环Concurrent Mark Cycle频繁启动又中途 Abort（GC10、GC15），标记被 Full GC 打断，并发回收完全失效
+
+## 工具
+
+### jmap
+jmap 是一个用于生成 Java 堆转储文件的工具，可以帮助你分析 JVM 的内存使用情况。
+
+可用于手动导出dump文件，使用MAT分析内存使用情况：
+
+```shell
+jmap -dump:format=b,file=dump.hprof 1234
+```
+
+增加如下jvm启动参数，OOM 自动生成dump文件：
+
+```java
+-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=./dump/
+```
+
+### MAT
+MAT (Memory Analyzer Tool) 是一个用于分析 Java 堆转储文件的工具，可以帮助你找到内存泄漏的原因。
+
+#### 前置准备
+
+1. 获取堆 dump 文件
+   - OOM 自动 dump：启动参数添加 `-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/xxx/heap.hprof`
+   - 手动导出：`jmap -dump:format=b,file=heap.hprof` 进程PID
+
+2. 适配 MAT 内存：修改`MemoryAnalyzer.ini`，根据 dump 大小设置-Xmx（dump 为 200MB 则设-Xmx1024m，大文件成倍放大）
+
+3. 启动 MAT，File -> Open Heap Dump 加载.hprof文件
+
+#### 步骤 1：优先执行泄漏嫌疑报告（Leak Suspects Report）
+
+1. 打开 dump 后弹窗选择 Leak Suspects Report，点击 Finish 自动分析；
+
+2. 报告核心阅读点：
+   - 饼图：占堆内存最高的对象 / 类；
+   - Suspect 1：MAT 自动标记的泄漏嫌疑人，包含占用内存大小、引用链、可疑代码类；
+
+3. Demo 场景：报告会直接标记JvmGCDemo$BigObject为泄漏源头，给出总占用内存。
+25127对象占用空间`258,749,256 ÷ 1024 ÷ 1024 = 247.02MB`
+
+    ![导入 dump 文件到 MAT](../assets/jvm/mat.png)
+
+    ![内存泄漏嫌疑报告](../assets/jvm/leak_suspects_report.png)
+
+#### 步骤 2：查看 Histogram 直方图，定位占用最高的业务类
+
+点击Histogram工具，在顶部正则输入框过滤业务类（如JvmGCDemo\$BigObject）；
+
+或点击Retained Heap降序排序，查看类总实例数、总占用堆内存；
+
+**关键指标：**
+
+1. Objects：该类实例总数量（Demo案例 25127 个）；
+
+2. Retained Heap（保留堆）：该类所有对象连带子对象合计占用内存（判断泄漏核心指标）；如果当前对象被 GC 回收，能连带一起释放的全部堆内存总和。包含三部分：
+   - 对象自身的 Shallow 内存；
+   - 该对象直接引用的所有子对象；
+   - 子对象再递归引用的所有下级对象。
+
+3. 区分：Shallow Heap（浅堆） 仅对象自身在堆中占用的内存大小，不包含该对象引用的其他任何子对象。组成（64 位 JVM + 压缩指针开启，主流生产环境）
+   - 对象头：12 字节（Mark Word + 类元指针）
+   - 实例字段指针：每个引用类型占 4 字节
+   - 对齐填充：保证内存 8 字节对齐（不足则补零）。 
+
+4. 排查泄漏**只看 Retained Heap**。
+
+    ![直方图](../assets/jvm/histogram.png)
+
+#### 步骤 3：追溯 GC 根引用链（找到对象无法回收的根源，核心步骤）
+
+1. 方式 A（最简，推荐）：Merge Shortest Paths to GC Roots
+
+    选中 BigObject 实例；右键 List objects -> Merge Shortest Paths to GC Roots；展开链条，确认是谁持有该对象。
+
+    ![追溯 GC 根引用链](../assets/jvm/gc_root.png)
+
+2. 方式 B：with incoming references 单对象溯源
+
+    选中单个 BigObject 实例；右键 List objects -> with incoming references；展开链条，确认是谁持有该对象，和上面 GC 根链路结果一致。
+
+    ![单对象溯源](../assets/jvm/incoming_reference.png)
+
+#### 步骤 4：分析对象内部，验证内存占用细节（区分真实大对象 / 空壳）
+
+1. 选中可疑对象（BigObject）；右键 List objects -> with outgoing references；查看对象自身持有的所有子属性（Demo场景看data字节数组，数组元素是10KB对象）；
+
+    ![分析对象内部](../assets/jvm/outgoing_references.png)
+
+2. 也可以通过OQL查询分析：
+
+    ![OQL分析对象](../assets/jvm/oql.png)
+
+
+#### 步骤 5：Dominator Tree 支配树，定位内存大户
+
+1. 点击 Dominator Tree 图标工具，按Retained Heap降序，能直接看到 “支配对象”：释放该对象即可释放大量堆内存；
+
+    Demo 中 ArrayList 是支配对象，释放它就能释放 245MB 堆内存，直接锁定泄漏载体。
+
+    ![支配树](../assets/jvm/domain_tree.png)
+
+#### 步骤 6：线程视图辅助验证（线程级泄漏）
+
+1. 查看所有线程栈本地变量，找到 main 线程，栈中存在全局 ArrayList 局部变量；排查 ThreadLocal、死锁、长期存活线程持有大集合等泄漏场景。
+
+    ![线程视图](../assets/jvm/thread.png)
+
+#### 步骤 7：对比两次 dump，验证泄漏增速（线上持续泄漏场景）
+
+1. 先后抓取 2 份 dump（间隔几分钟）；打开第一份 dump → Histogram视图，点击工具 Compare with Another Heap Dump；对比视图中Delta Objects列持续增长的类，即为持续泄漏对象。
+
+    ![对比两次 dump](../assets/jvm/compare_dump_files.png)
