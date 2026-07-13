@@ -14,7 +14,8 @@ tags: Java
 - [JavaGuide 面试突击版](https://javaguide.cn/interview-preparation/backend-interview-plan.html)
 
 # JVM
-![JVM-rough-structure-model](https://oss.javaguide.cn/github/javaguide/java/basis/jvm-rough-structure-model.png)
+[![JVM-rough-structure-model](/assets/jvm/jvm-rough-structure-model.png)](https://javaguide.cn/java/jvm/memory-area.html)
+*图片来源：[JavaGuide](https://javaguide.cn/java/jvm/memory-area.html)*
 
 ## AOT 
 - JDK 9 引入了一种新的编译模式 `AOT(Ahead of Time Compilation)` 。和 JIT 不同的是，这种编译模式会在程序被**执行前**就将其编译成机器码，属于静态编译（C、 C++，Rust，Go 等语言就是静态编译）。AOT 避免了 JIT 预热等各方面的开销，可以提高 Java 程序的启动速度，避免预热时间长。并且，AOT 还能减少内存占用和增强 Java 程序的安全性（AOT 编译后的代码不容易被反编译和修改），特别适合云原生场景。
@@ -22,9 +23,11 @@ tags: Java
 
 ## 内存区域
 
-![JDK1.7内存区域](https://oss.javaguide.cn/github/javaguide/java/jvm/java-runtime-data-areas-jdk1.7.png)
+[![JDK1.7内存区域](/assets/jvm/java-runtime-data-areas-jdk1.7.png)](https://javaguide.cn/java/jvm/memory-area.html#%E8%BF%90%E8%A1%8C%E6%97%B6%E6%95%B0%E6%8D%AE%E5%8C%BA%E5%9F%9F)
+*图片来源：[JavaGuide](https://javaguide.cn/java/jvm/memory-area.html#%E8%BF%90%E8%A1%8C%E6%97%B6%E6%95%B0%E6%8D%AE%E5%8C%BA%E5%9F%9F)*
 
-![JDK1.7内存区域](https://oss.javaguide.cn/github/javaguide/java/jvm/java-runtime-data-areas-jdk1.8.png)
+[![JDK1.7内存区域](/assets/jvm/java-runtime-data-areas-jdk1.8.png)](https://javaguide.cn/java/jvm/memory-area.html#%E8%BF%90%E8%A1%8C%E6%97%B6%E6%95%B0%E6%8D%AE%E5%8C%BA%E5%9F%9F)
+*图片来源：[JavaGuide](https://javaguide.cn/java/jvm/memory-area.html#%E8%BF%90%E8%A1%8C%E6%97%B6%E6%95%B0%E6%8D%AE%E5%8C%BA%E5%9F%9F)*
 
 <pre>
 ┌───────────────────────────────────────────────────────────── 操作系统物理内存
@@ -880,9 +883,9 @@ MAT (Memory Analyzer Tool) 是一个用于分析 Java 堆转储文件的工具�
 3. Demo 场景：报告会直接标记JvmGCDemo$BigObject为泄漏源头，给出总占用内存。
 25127对象占用空间`258,749,256 ÷ 1024 ÷ 1024 = 247.02MB`
 
-    ![导入 dump 文件到 MAT](../assets/jvm/mat.png)
+    ![导入 dump 文件到 MAT](/assets/jvm/mat.png)
 
-    ![内存泄漏嫌疑报告](../assets/jvm/leak_suspects_report.png)
+    ![内存泄漏嫌疑报告](/assets/jvm/leak_suspects_report.png)
 
 #### 步骤 2：查看 Histogram 直方图，定位占用最高的业务类
 
@@ -906,7 +909,7 @@ MAT (Memory Analyzer Tool) 是一个用于分析 Java 堆转储文件的工具�
 
 4. 排查泄漏**只看 Retained Heap**。
 
-    ![直方图](../assets/jvm/histogram.png)
+    ![直方图](/assets/jvm/histogram.png)
 
 #### 步骤 3：追溯 GC 根引用链（找到对象无法回收的根源，核心步骤）
 
@@ -914,23 +917,23 @@ MAT (Memory Analyzer Tool) 是一个用于分析 Java 堆转储文件的工具�
 
     选中 BigObject 实例；右键 List objects -> Merge Shortest Paths to GC Roots；展开链条，确认是谁持有该对象。
 
-    ![追溯 GC 根引用链](../assets/jvm/gc_root.png)
+    ![追溯 GC 根引用链](/assets/jvm/gc_root.png)
 
 2. 方式 B：with incoming references 单对象溯源
 
     选中单个 BigObject 实例；右键 List objects -> with incoming references；展开链条，确认是谁持有该对象，和上面 GC 根链路结果一致。
 
-    ![单对象溯源](../assets/jvm/incoming_reference.png)
+    ![单对象溯源](/assets/jvm/incoming_reference.png)
 
 #### 步骤 4：分析对象内部，验证内存占用细节（区分真实大对象 / 空壳）
 
 1. 选中可疑对象（BigObject）；右键 List objects -> with outgoing references；查看对象自身持有的所有子属性（Demo场景看data字节数组，数组元素是10KB对象）；
 
-    ![分析对象内部](../assets/jvm/outgoing_references.png)
+    ![分析对象内部](/assets/jvm/outgoing_references.png)
 
 2. 也可以通过OQL查询分析：
 
-    ![OQL分析对象](../assets/jvm/oql.png)
+    ![OQL分析对象](/assets/jvm/oql.png)
 
 
 #### 步骤 5：Dominator Tree 支配树，定位内存大户
@@ -939,16 +942,16 @@ MAT (Memory Analyzer Tool) 是一个用于分析 Java 堆转储文件的工具�
 
     Demo 中 ArrayList 是支配对象，释放它就能释放 245MB 堆内存，直接锁定泄漏载体。
 
-    ![支配树](../assets/jvm/domain_tree.png)
+    ![支配树](/assets/jvm/domain_tree.png)
 
 #### 步骤 6：线程视图辅助验证（线程级泄漏）
 
 1. 查看所有线程栈本地变量，找到 main 线程，栈中存在全局 ArrayList 局部变量；排查 ThreadLocal、死锁、长期存活线程持有大集合等泄漏场景。
 
-    ![线程视图](../assets/jvm/thread.png)
+    ![线程视图](/assets/jvm/thread.png)
 
 #### 步骤 7：对比两次 dump，验证泄漏增速（线上持续泄漏场景）
 
 1. 先后抓取 2 份 dump（间隔几分钟）；打开第一份 dump → Histogram视图，点击工具 Compare with Another Heap Dump；对比视图中Delta Objects列持续增长的类，即为持续泄漏对象。
 
-    ![对比两次 dump](../assets/jvm/compare_dump_files.png)
+    ![对比两次 dump](/assets/jvm/compare_dump_files.png)
