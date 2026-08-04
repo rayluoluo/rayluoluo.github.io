@@ -1,0 +1,1996 @@
+---
+layout: post
+title:  Windows 部署 Docker + K8s + 多节点 Kafka 集群完整实操
+category: kafka
+tags:
+- kafka
+- Docker
+---
+
+## 安装 WSL
+
+管理员 PowerShell，正确开启 WSL
+
+```shell
+wsl --install
+```
+
+执行完成后重启电脑。
+
+重启之后验证：
+
+```shell
+wsl --list --verbose
+```
+查询结果只要有默认 Ubuntu 发行版，WSL2 环境就绪：
+
+```shell
+  NAME              STATE           VERSION
+* Ubuntu-24.04      Running         2
+```
+
+## 安装 Docker Desktop
+
+1. 下载：https://www.docker.com/products/docker-desktop/
+
+2. 安装软件，不要勾选 Hyper-V 选项
+
+3. 启动 Docker Desktop
+
+    设置 → Resources → WSL Integration，启用 Ubuntu
+
+    ![启用 Ubuntu](/assets/docker/settings_wsl_integration.png)
+
+    Settings → General：勾选 Use the WSL 2 based engine
+
+    ![使用 WSL 2 基础引擎](/assets/docker/settings_use_the_wsl2_based_engine.png)
+
+4. 再次查询状态
+
+    ```shell
+    wsl --list --verbose
+    ```
+    查询结果，docker-desktop已启动：
+    
+    ```shell
+      NAME              STATE           VERSION
+    * Ubuntu-24.04      Running         2
+      docker-desktop    Running         2
+    ```
+
+## 下载 kind 和 helm3
+
+1. 下载最新版本的[kind-windows-amd64](https://github.com/kubernetes-sigs/kind/releases)，移动到`C:\Windows\System32`，并重命名为`kind.exe`。
+
+   新开终端验证，确认kind软件可运行：
+   
+    ```shell
+    kind --version
+    kind version 0.32.0
+    ```
+   
+2. 下载最新版本的[helm3](https://github.com/helm/helm/releases#release-v3.21.3)，解压出helm.exe，并移动到`C:\Windows\System32`。
+   新开终端验证，确认kind软件可运行：
+
+    ```shell
+    helm version
+    version.BuildInfo{Version:"v3.21.3", GitCommit:"1ad6e68924fdf6fb0c7dcef8e9e1dfc0f36eaed6", GitTreeState:"clean", GoVersion:"go1.26.5"}
+    ```
+   
+## 创建 Kind 多节点 K8s 集群
+
+创建`kind-config.yaml`文件：
+
+```yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+- role: worker
+- role: worker
+```
+
+创建集群`kafka-lab`：
+
+```shell
+D:\github\hello-world\docker> kind create cluster --name kafka-lab --config kind-config.yaml
+Creating cluster "kafka-lab" ...
+ • Ensuring node image (kindest/node:v1.36.1) 🖼  ...
+ ✓ Ensuring node image (kindest/node:v1.36.1) 🖼
+ • Preparing nodes 📦 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-kafka-lab"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-kafka-lab
+
+Have a nice day! 👋
+```
+
+创建成功后验证，能看到 3 个节点就正常。
+
+```shell
+# 查看上下文（出现 kind-kafka-lab）
+PS D:\github\hello-world\docker> kubectl config get-contexts
+CURRENT   NAME             CLUSTER          AUTHINFO         NAMESPACE
+*         kind-kafka-lab   kind-kafka-lab   kind-kafka-lab
+
+# 查看3个K8s节点
+PS D:\github\hello-world\docker> kubectl get nodes
+NAME                      STATUS   ROLES           AGE   VERSION
+kafka-lab-control-plane   Ready    control-plane   20m   v1.36.1
+kafka-lab-worker          Ready    <none>          20m   v1.36.1
+kafka-lab-worker2         Ready    <none>          20m   v1.36.1
+```
+
+### 提醒
+
+Docker Desktop 原生左侧「Kubernetes 面板」只能看 Docker Desktop 自带 K8s 集群，看不到通过 `kind create cluster` 手动创建的 kafka-lab 集群！
+
+**安装Docker Desktop 扩展插件 K-Eyes**，最佳 Docker Desktop 插件，专门用来读取你宿主机 `~/.kube/config` 里所有外部 K8s 集群（kind/minikube/ 远程集群），完美兼容 kind，直接内嵌在 Docker 界面：
+
+```shell
+docker extension install chrislpierce/k-eyes:latest
+```
+
+> 如果提示无法安装：进入 Docker Desktop 设置 → Extensions，开启「Allow non-Marketplace extensions」
+>
+> ![img.png](/assets/docker/settings_allow_non_marketplace_extensions.png)
+
+## 搭建 Kafka 集群的三种方式
+
+### 清理资源残留的方法
+
+先了解清理资源残留的方法，调试过程可能会用到：
+
+```shell
+# 1. 卸载helm release（helm install/upgrade 创建的资源）
+helm uninstall kafka -n kafka
+
+## 或：删除资源（kubectl apply -f xxx.yaml 创建的资源）
+kubectl delete -f kafka.yaml -n kafka
+
+# 2. 删除所有kafka命名空间下的PVC（KRaft数据存在这里，不删一定会冲突）
+kubectl delete pvc -n kafka --all
+
+# 3. 可选：确认没有残留pod（如果有异常pod直接清除）
+kubectl delete pods -n kafka --all
+
+# 4. 【可选兜底】如果你打算彻底重来，可以删除整个namespace
+# kubectl delete ns kafka
+```
+
+验证清理结果：
+
+```shell
+kubectl get all,pvc -n kafka
+```
+
+### 方式一：使用 bitnami
+
+> **Bitnami 方式**：Bitnami 提供**预打包应用栈**（LAMP、WordPress、Nextcloud、GitLab、MongoDB、Kafka 等），支持虚拟机镜像、Docker 镜像、K8s Helm Chart、云市场一键部署、本地安装包多种形式。这种方式属于第三方预打包镜像（bitnami/xxx），预制整套运行栈、内置启动脚本、统一路径 `/opt/bitnami`；
+>
+> **注意：Broadcom 已调整策略，免费公共 bitnami 镜像逐步停止维护，商业版 Bitnami Secure Images 付费使用**
+
+#### 子方案1：通过`helm install`创建集群 
+
+> helm install kafka bitnami/kafka -f kafka-bitnami.yaml：bitnami/kafka 是helm chart 软件包，-f 指定的是values 配置文件
+
+##### 准备 Helm 仓库
+
+```shell
+# 1.登记bitnami应用商店地址
+helm repo add bitnami https://charts.bitnami.com/bitnami
+# 2.同步商店里所有应用清单到本地
+helm repo update
+
+# 如果太慢，可以先删除之前添加过旧bitnami
+helm repo remove bitnami
+# 添加国内加速镜像
+helm repo add bitnami https://helm-charts.itboon.top/bitnami
+# 同步商店里所有应用清单到本地
+helm repo update
+```
+
+##### 编写 Kafka 配置 kafka-values.yaml
+
+```yaml
+# kafka-values.yaml
+## 镜像配置
+image:
+  repository: bitnami/kafka
+  tag: 3.9.0-debian-12-r4
+  pullPolicy: IfNotPresent
+
+## 副本数量
+replicaCount: 3
+
+## KRaft模式开关（重点！关闭zookeeper）
+kraft:
+  enabled: true
+  # 集群ID，所有节点必须统一，可自定义
+  clusterId: "MkYxZjQzNzItODQzMi00YzE4LWI4MDItYjE4MDIwNzI4YjY2"
+
+## 关闭controller分离模式
+controller:
+  enabled: false
+
+## 启用broker（组合模式下自动包含controller功能）
+broker:
+  kraft:
+    enabled: true
+    clusterId: "MkYxZjQzNzItODQzMi00YzE4LWI4MDItYjE4MDIwNzI4YjY2"
+
+## 关闭内置Zookeeper
+zookeeper:
+  enabled: false
+
+## 存储大小
+persistence:
+  size: 10Gi
+
+## 资源限制（测试环境可以调低/删除）
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+## 监听地址配置（集群内部通信）
+listeners:
+  client:
+    protocol: PLAINTEXT
+  controller:
+    protocol: PLAINTEXT
+
+## 内部broker通信协议
+interBrokerListenerName: PLAINTEXT
+
+### ===== 可选：自动创建测试topic =====
+#provisioning:
+#  enabled: true
+#  topics:
+#    - name: test-topic
+#      partitions: 3
+#      replicationFactor: 3
+```
+
+##### 创建集群的一些相关命令：
+
+```shell
+# 1. 创建独立命名空间
+kubectl create namespace kafka
+
+# 2.从bitnami商店下载kafka套餐，部署到kind的K8s集群
+helm install kafka bitnami/kafka --version 31.1.1 -n kafka -f kafka-values.yaml
+
+# （可选）3.设置默认命名空间（不用每次敲 -n kafka）
+kubectl config set-context --current --namespace=kafka
+# 设置后直接 kubectl get pods 就等价于 kubectl get pods -n kafka
+
+# 查看本地有多少【kind集群】（多套独立K8s）
+kind get clusters
+
+# 在当前连接的这套K8s集群内，查看所有【命名空间】
+kubectl get namespaces
+
+# 查看 pod 节点
+kubectl get pods -n kafka -w
+
+# 查看 service
+kubectl get svc -n kafka
+
+# 查看指定 pod 节点状态
+kubectl describe pod kafka-controller-0 -n kafka
+
+# 查看指定 pod 节点日志
+kubectl logs kafka-controller-0 -n kafka
+
+## 预览 Kafka 集群配置
+helm template kafka bitnami/kafka --version 31.1.1 -n kafka -f kafka-values.yaml > .\console_log\helm_template_31.1.1.yaml
+
+# 查看手动传的参数
+helm get values kafka -n kafka
+
+# 查看所有 Release 信息
+helm get all kafka -n kafka
+```
+
+##### 常见报错问题
+
+###### 1. 镜像加载失败报错：Error: ImagePullBackOff
+
+```shell
+kubectl get pods -n kafka -w
+NAME                 READY   STATUS                  RESTARTS   AGE
+kafka-controller-0   0/1     Init:ImagePullBackOff   0          6m9s
+kafka-controller-1   0/1     Init:ImagePullBackOff   0          6m9s
+kafka-controller-2   0/1     Init:ImagePullBackOff   0          6m9s
+kafka-controller-2   0/1     Init:ErrImagePull       0          8m14s
+kafka-controller-1   0/1     Init:ErrImagePull       0          8m14s
+kafka-controller-1   0/1     Init:ImagePullBackOff   0          8m27s
+kafka-controller-2   0/1     Init:ImagePullBackOff   0          8m28s
+kafka-controller-0   0/1     Init:ErrImagePull       0          8m39s
+kafka-controller-0   0/1     Init:ImagePullBackOff   0          8m56s
+kafka-controller-1   0/1     Init:ErrImagePull       0          13m
+kafka-controller-2   0/1     Init:ErrImagePull       0          13m
+kafka-controller-1   0/1     Init:ImagePullBackOff   0          14m
+kafka-controller-2   0/1     Init:ImagePullBackOff   0          14m
+kafka-controller-0   0/1     Init:ErrImagePull       0          14m
+kafka-controller-0   0/1     Init:ImagePullBackOff   0          14m
+
+
+kubectl describe pod kafka-controller-0 -n kafka
+  Normal   Pulling    5m56s (x5 over 10m)    kubelet            Pulling image "docker.io/bitnami/kafka:4.0.0-debian-12-r10"
+  Warning  Failed     5m35s (x5 over 10m)    kubelet            Error: ErrImagePull
+  Warning  Failed     5m35s                  kubelet            Failed to pull image "docker.io/bitnami/kafka:4.0.0-debian-12-r10": failed to pull and unpack image "docker.io/bitnami/kafka:4.0.0-debian-12-r10": failed to resolve reference "docker.io/bitnami/kafka:4.0.0-debian-12-r10": failed to do request: Head "https://registry-1.docker.io/v2/bitnami/kafka/manifests/4.0.0-debian-12-r10": dial tcp 74.86.118.24:443: connect: connection refused
+  Normal   BackOff    44s (x32 over 10m)     kubelet            Back-off pulling image "docker.io/bitnami/kafka:4.0.0-debian-12-r10"
+  Warning  Failed     3s (x35 over 10m)      kubelet            Error: ImagePullBackOff
+```
+
+**报错原因：**
+
+Init:ImagePullBackOff / Init:ErrImagePull
+
+初始化容器（initContainer），kind拉取镜像失败。
+
+K8s 启动 Pod 会先运行 Init 容器，init 容器镜像下载失败，主 Kafka 容器根本不会启动。
+
+**解决方法：**
+
+先确认原因。修改镜像源为：
+
+```json
+{
+  "builder": {
+    "gc": {
+      "defaultKeepStorage": "20GB",
+      "enabled": true
+    }
+  },
+  "dns": [
+    "223.5.5.5",
+    "114.114.114.114"
+  ],
+  "experimental": false,
+  "registry-mirrors": [
+    "https://docker.1ms.run",
+    "https://docker.xuanyuan.me",
+    "https://docker.m.daocloud.io"
+  ]
+}
+```
+
+尝试手动拉取 Kafka 镜像：
+
+```shell
+docker pull bitnami/kafka:4.0.0
+Error response from daemon: unknown: failed to resolve reference "docker.io/bitnami/kafka:4.0.0": unexpected status from GET request to https://docker.xuanyuan.me/v2/bitnami/kafka/manifests/4.0.0?ns=docker.io: 429 Too Many Requests
+```
+
+报错表示被限流了，于是考虑修改镜像源为华为云的[3.9.0-debian-12-r4版本](https://docker.aityp.com/image/docker.io/bitnami/kafka:3.9.0-debian-12-r4)：
+
+```shell
+## 1. 执行拉取
+docker pull swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/bitnami/kafka:3.9.0-debian-12-r4
+## 2. 打tag
+docker tag swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/bitnami/kafka:3.9.0-debian-12-r4 bitnami/kafka:3.9.0-debian-12-r4
+## 3. 导入kind集群
+kind load docker-image bitnami/kafka:3.9.0-debian-12-r4 --name kafka-lab
+```
+
+手动加载镜像：
+
+```shell
+kind load docker-image bitnami/kafka:3.9.0-debian-12-r4 --name kafka-lab
+```
+
+查看pod状态：`kubectl describe pod kafka-controller-0 -n kafka`
+
+```text
+  Warning  BackOff    3m39s (x10 over 7m)    kubelet            Back-off restarting failed container kafka in pod kafka-controller-0_kafka(232b659c-175f-4b83-a931-0b676a030118)
+  Normal   Pulled     61s (x7 over 7m17s)    kubelet            Container image "docker.io/bitnami/kafka:3.9.0-debian-12-r4" already present on machine and can be accessed by the pod
+```
+
+###### 2. Chart 和 Kafka 镜像版本不配套
+
+pod加载镜像并初始化完成后，查看pod的日志，集群初始化报错：
+
+```shell
+kubectl logs -f kafka-controller-0 -n kafka
+Defaulted container "kafka" out of: kafka, prepare-config (init)
+kafka 01:29:02.79 INFO ==>
+kafka 01:29:02.79 INFO ==> Welcome to the Bitnami kafka container
+kafka 01:29:02.80 INFO ==> Subscribe to project updates by watching https://github.com/bitnami/containers
+kafka 01:29:02.80 INFO ==> Did you know there are enterprise versions of the Bitnami catalog? For enhanced secure software supply chain features, unlimited pulls from Docker, LTS support, or application customization, see Bitnami Premium or Tanzu Application Catalog. See https://www.arrow.com/globalecs/na/vendors/bitnami/ for more information.
+kafka 01:29:02.80 INFO ==>
+kafka 01:29:02.80 INFO ==> ** Starting Kafka setup **
+kafka 01:29:02.92 INFO ==> Initializing KRaft storage metadata
+kafka 01:29:02.92 INFO ==> Adding KRaft SCRAM users at storage bootstrap
+kafka 01:29:02.95 INFO ==> Formatting storage directories to add metadata...
+Picked up JAVA_TOOL_OPTIONS:
+Because controller.quorum.voters is not set on this controller, you must specify one of the following: --standalone, --initial-controllers, or --no-initial-controllers.
+```
+
+查阅资料，其实是chart版本和kafka版本不配套导致的。
+
+查看 bitnami/kafka 的 chart版本列表：
+
+```shell
+helm search repo bitnami/kafka --versions 
+NAME            CHART VERSION   APP VERSION     DESCRIPTION
+bitnami/kafka   32.4.4          4.0.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   32.4.3          4.0.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   32.3.9          4.0.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   32.3.1          4.0.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   32.2.11         4.0.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   32.2.2          4.0.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   32.1.2          4.0.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   31.4.0          3.9.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   31.3.1          3.9.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   31.1.1          3.9.0
+bitnami/kafka   31.0.0          3.9.0
+bitnami/kafka   30.1.8          3.8.1
+bitnami/kafka   30.1.4          3.8.0
+bitnami/kafka   30.0.5          3.8.0
+bitnami/kafka   29.3.13         3.7.1
+bitnami/kafka   29.3.4          3.7.0
+bitnami/kafka   29.2.0          3.7.0
+bitnami/kafka   28.1.1          3.7.0
+bitnami/kafka   28.0.0          3.7.0
+bitnami/kafka   26.11.4         3.6.1
+bitnami/kafka   26.8.3          3.6.1
+```
+
+逐个chart版本查看详细描述
+
+```shell
+helm show values bitnami/kafka --version 31.1.1 > .\console_log\helm_show_values_bitnami_kafka_31.1.1.yaml
+```
+
+可以查询到31.1.1是配套`3.9.0-debian-12-r4`版本的：
+
+```yaml
+image:
+  registry: docker.io
+  repository: bitnami/kafka
+  tag: 3.9.0-debian-12-r4
+  digest: ""
+```
+
+于是，尝试**部署命令指定chart版本号**，改为：
+
+```shell
+helm install kafka bitnami/kafka --version 31.1.1 -n kafka --create-namespace -f kafka-values.yaml
+```
+
+查看pod日志，KRaft 集群初始化成功，集群基础通信正常
+
+1. 成功格式化 KRaft 元数据目录：`Formatting metadata directory /bitnami/kafka/data`
+
+2. 集群三节点 voter 列表加载完整：`voters={0,1,2}`，三个 controller 互相识别
+
+3. 成功完成多轮 Raft Leader 选举：
+    - 一开始 leader=2
+    - 随后切换 leader=0
+    - 最新日志切换为 leader=1
+
+    ```plaintext
+    [RaftManager id=0] Completed transition to FollowerState(... epoch=13, leader=1 ...)
+    [QuorumController id=0] In the new epoch 13, the leader is 1.
+    ```
+4. Broker 进程正常启动：`[BrokerServer id=0] Transition from STARTING to STARTED，Kafka Server started`
+
+5. 监听端口正常启动：0.0.0.0:9092(CLIENT)、9093(CONTROLLER)、9094(INTERNAL)
+
+##### 自定义server.properties配置项
+
+###### 修改yaml文档
+
+```yaml
+## 顶层或controller下，增加 extraConfig 或 extraConfigYaml配置
+
+# ========== 全局顶层 extraConfigYaml ==========
+extraConfigYaml:
+  auto.create.topics.enable: false
+  log.retention.hours: 72
+
+# 或
+
+# ========== controller下 extraConfig ==========
+controller:
+  enabled: false
+  extraConfig: |
+    auto.create.topics.enable=false
+    log.retention.hours=72
+```
+
+###### 预览配置
+
+比如上面的修改，增加了`auto.create.topics.enable`和`log.retention.hours`配置，确认修改有效：
+
+```shell
+helm template kafka bitnami/kafka --version 31.1.1 -n kafka -f kafka-values.yaml | Select-String -Pattern "auto.create.topics.enable|log.retention.hours"
+
+
+    auto.create.topics.enable=false
+    log.retention.hours=72
+```
+
+###### 应用配置
+
+```shell
+helm upgrade --install kafka bitnami/kafka --version 31.1.1 -n kafka --create-namespace --values kafka-values.yaml
+```
+
+###### 登录 pod 验证
+
+```shell
+PS D:\github\hello-world\docker\deploy\bitnami> kubectl exec -it kafka-controller-0 -n kafka -- bash
+Defaulted container "kafka" out of: kafka, kafka-init (init)
+I have no name!@kafka-controller-0:/$ cat /opt/bitnami/kafka/config/server.properties | grep -C 5 auto.create.topics.enable
+
+# Custom Kafka Configuration
+
+auto.create.topics.enable=false
+log.retention.hours=72
+```
+
+> 更多说明，可参考[charts/bitnami/kafka/README.md at kafka/31.1.1 · bitnami/charts](https://github.com/bitnami/charts/blob/kafka/31.1.1/bitnami/kafka/README.md#kafka-parameters)
+
+#### 子方案2：通过`kubectl apply` 创建集群（Todo：待验证）
+
+> `kubectl apply -f kafka-bitnami.yaml`：直接提交原生 K8s 资源清单（Service/StatefulSet/PVC 模板等），Kubernetes 原生 API 直接创建资源；无 helm 参与。
+
+1. 编写 Kafka 配置 kafka-bitnami.yaml
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: kafka
+spec:
+  selector:
+    app: kafka # 选择所有 label【app=kafka】的Pod
+  clusterIP: None # Headless 无VIP，支持pod独立域名
+  ports:
+    - port: 9092
+      name: client
+    - port: 9093
+      name: controller
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: kafka
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: kafka
+  serviceName: kafka # 必须和service名称一致！生成稳定pod域名
+  template:
+    metadata:
+      labels:
+        app: kafka # Pod打上标签 app=kafka
+    spec:
+      containers:
+        - name: kafka
+          image: bitnami/kafka:3.9.0-debian-12-r4
+          env:
+            # brokerID直接使用pod hostname数字 kafka-0 → 0
+            - name: KAFKA_BROKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # ========== KRaft 核心配置 ==========
+            - name: KAFKA_CFG_PROCESS_ROLES
+              value: "broker,controller"
+            # 静态仲裁节点列表 headless完整域名
+            - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
+              value: "0@kafka-0.kafka.kafka.svc.cluster.local:9093,1@kafka-1.kafka.kafka.svc.cluster.local:9093,2@kafka-2.kafka.kafka.svc.cluster.local:9093"
+            - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+            # 监听器配置
+            - name: KAFKA_CFG_LISTENERS
+              value: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+            - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
+            - name: KAFKA_CFG_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://$(HOSTNAME).kafka.kafka.svc.cluster.local:9092"
+            - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            # 业务参数
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "2"
+          ports:
+            - containerPort: 9092
+              name: client
+            - containerPort: 9093
+              name: controller
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/kafka
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+```
+
+2. 应用部署：
+
+```shell
+# 创建命名空间（首次部署执行；已存在则跳过）
+kubectl create namespace kafka
+
+# 应用资源清单
+kubectl apply -f .\kafka-bitnami.yaml
+```
+
+### 方式二：应用原生官方apache kafka镜像
+
+> **原生官方方式**：软件上游维护者提供的官方镜像（library/nginx、library/mysql、postgres 官方镜像等）
+
+#### 导入镜像
+
+修改镜像源为：
+
+```json
+{
+  "builder": {
+    "gc": {
+      "defaultKeepStorage": "20GB",
+      "enabled": true
+    }
+  },
+  "dns": [
+    "223.5.5.5",
+    "114.114.114.114"
+  ],
+  "experimental": false,
+  "registry-mirrors": [
+    "https://docker.1ms.run",
+    "https://docker.xuanyuan.me",
+    "https://docker.m.daocloud.io"
+  ]
+}
+```
+
+先执行镜像拉取（二选一）
+
+```shell
+# 直接拉
+docker pull apache/kafka:3.9.2
+
+# 如果慢，加免费加速前缀
+docker pull docker.1ms.run/apache/kafka:3.9.2
+docker tag docker.1ms.run/apache/kafka:3.9.2 apache/kafka:3.9.2
+
+# 载入kind集群
+kind load docker-image apache/kafka:3.9.2 --name kafka-lab
+```
+
+拉取镜像：
+```shell
+docker pull apache/kafka:3.9.2
+3.9.2: Pulling from apache/kafka
+Digest: sha256:05b4616e0702ef2729327705d54ad6b50ea70b271c4b730fabd2320789fb7b02
+Status: Image is up to date for apache/kafka:3.9.2
+docker.io/apache/kafka:3.9.2
+
+What's next:
+    View a summary of image vulnerabilities and recommendations → docker scout quickview apache/kafka:3.9.2
+```
+
+保存镜像到本地：
+
+```shell
+docker save -o apache-kafka-3.9.2.tar apache/kafka:3.9.2
+```
+
+镜像载入集群`kafka-lab`：
+
+```shell
+# 拷贝到容器 control-plane 内/var目录，不要用/tmp
+docker cp apache-kafka-3.9.2.tar kafka-lab-worker:/var/apache-kafka-3.9.2.tar
+Successfully copied 218MB (transferred 218MB) to kafka-lab-worker:/var/apache-kafka-3.9.2.tar
+
+# 进入容器查看
+docker exec -it kafka-lab-control-plane ls -l /var/apache-kafka-3.9.2.tar
+-rwxr-xr-x 1 root root 217905664 Jul 23 04:09 /var/apache-kafka-3.9.2.tar
+What is next:
+    Try Docker Debug for seamless, persistent debugging tools in any container or image → docker debug kafka-lab-control-plane
+    Learn more at https://docs.docker.com/go/debug-cli/
+
+# 执行导入
+docker exec kafka-lab-worker ctr -n k8s.io images import /var/apache-kafka-3.9.2.tar
+docker.io/apache/kafka:3.9.2                    saved
+application/vnd.oci.image.index.v1+json sha256:05b4616e0702ef2729327705d54ad6b50ea70b271c4b730fabd2320789fb7b02
+Importing       elapsed: 4.6 s  total:   0.0 B  (0.0 B/s)
+
+# 查看镜像
+docker exec kafka-lab-control-plane ctr -n k8s.io images list | Select-String kafka
+docker.io/apache/kafka:3.9.2                                                              application/vnd.oci.image.index.v1+json
+        sha256:05b4616e0702ef2729327705d54ad6b50ea70b271c4b730fabd2320789fb7b02 207.8 MiB linux/amd64,linux/arm64
+                           io.cri-containerd.image=managed
+```
+
+同样，对worker节点也执行以上操作：
+
+```shell
+# worker
+docker cp apache-kafka-3.9.2.tar kafka-lab-worker:/var/apache-kafka-3.9.2.tar
+docker exec kafka-lab-worker ctr -n k8s.io images import /var/apache-kafka-3.9.2.tar
+docker exec kafka-lab-worker ctr -n k8s.io images list | Select-String kafka
+
+# worker2
+docker cp apache-kafka-3.9.2.tar kafka-lab-worker2:/var/apache-kafka-3.9.2.tar
+docker exec kafka-lab-worker2 ctr -n k8s.io images import /var/apache-kafka-3.9.2.tar
+docker exec kafka-lab-worker2 ctr -n k8s.io images list | Select-String kafka
+```
+
+#### 使用无节点绑定的最终 yaml（kafka-kraft.yaml）
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-0
+  namespace: kafka
+spec:
+  selector:
+    statefulset.kubernetes.io/pod-name: kafka-0
+  ports:
+    - port: 9092
+      targetPort: 9092
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-1
+  namespace: kafka
+spec:
+  selector:
+    statefulset.kubernetes.io/pod-name: kafka-1
+  ports:
+    - port: 9092
+      targetPort: 9092
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-2
+  namespace: kafka
+spec:
+  selector:
+    statefulset.kubernetes.io/pod-name: kafka-2
+  ports:
+    - port: 9092
+      targetPort: 9092
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: kafka
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: kafka
+  serviceName: "kafka"
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      # !!! 删除 nodeSelector，允许调度到任意节点
+      containers:
+        - name: kafka
+          image: apache/kafka:3.9.2
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KAFKA_BROKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: KAFKA_CLUSTER_ID
+              value: "abcdefg1234567890abcdefg1234567890"
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: "kafka-0@kafka-0.kafka:9093,kafka-1@kafka-1.kafka:9093,kafka-2@kafka-2.kafka:9093"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://$(HOSTNAME).kafka:9092"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "3"
+          ports:
+            - containerPort: 9092
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/kafka/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 5Gi
+```
+
+#### 部署 Kafka 集群到 kind 集群中
+
+```shell
+# 创建命名空间（首次部署执行；已存在则跳过）
+kubectl create namespace kafka
+
+# 应用资源清单
+kubectl apply -f kafka-kraft.yaml -n kafka
+service/kafka-0 created
+service/kafka-1 created
+service/kafka-2 created
+statefulset.apps/kafka created
+```
+
+### 方式三：二进制自建 Kafka 镜像
+
+> **自定义 Dockerfile**：自己编写 Dockerfile，可以基于【官方镜像 /bitnami 镜像 /alpine/debian 基础镜像】二次构建，完全自主掌控
+
+#### 下载官方二进制包
+
+地址：https://kafka.apache.org/downloads
+
+下载：kafka_2.13-3.9.2.tgz
+
+也可以用华为云镜像源，下载更快：https://mirrors.huaweicloud.com/apache/kafka/3.9.2/
+
+#### 编写 Dockerfile
+
+```dockerfile
+# 使用Eclipse Temurin JDK21 Alpine（轻量LTS JRE）
+FROM eclipse-temurin:21-jre-alpine
+
+ENV TZ=Asia/Shanghai
+ENV KAFKA_HOME=/opt/kafka
+ENV PATH=${KAFKA_HOME}/bin:${PATH}
+
+WORKDIR /opt
+
+# 复制官方二进制压缩包到镜像内
+COPY kafka_2.13-3.9.2.tgz /tmp/
+
+# 解压、清理压缩包
+RUN tar -zxf /tmp/kafka_2.13-3.9.2.tgz \
+    && mv kafka_2.13-3.9.2 ${KAFKA_HOME} \
+    && rm -f /tmp/kafka_2.13-3.9.2.tgz
+
+# 暴露端口：业务9092、raft通信9093
+EXPOSE 9092 9093
+
+# 工作目录切换kafka根目录
+WORKDIR ${KAFKA_HOME}
+
+# 默认启动命令，后续k8s yaml覆盖command实现KRaft格式化与启动
+CMD ["sh"]
+```
+
+#### 本地构建镜像（PowerShell 执行）
+
+```shell
+docker build -t my-kafka:3.9.2-jdk21 .
+[+] Building 400.2s (10/10) FINISHED                                                                                    docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                    0.0s
+ => => transferring dockerfile: 692B                                                                                                    0.0s 
+ => [internal] load metadata for docker.io/library/eclipse-temurin:21-jre-alpine                                                        9.6s 
+ => [internal] load .dockerignore                                                                                                       0.0s
+ => => transferring context: 2B                                                                                                         0.0s 
+ => [1/5] FROM docker.io/library/eclipse-temurin:21-jre-alpine@sha256:3f08b13888f595cc49edabea7250ba69499ba25602b267da591720769400e0  380.8s 
+ => [4/5] RUN tar -zxf /tmp/kafka_2.13-3.9.2.tgz     && mv kafka_2.13-3.9.2 /opt/kafka     && rm -f /tmp/kafka_2.13-3.9.2.tgz           1.9s 
+ => [5/5] WORKDIR /opt/kafka                                                                                                            0.0s 
+ => exporting to image                                                                                                                  7.2s 
+ => => exporting layers                                                                                                                 5.3s 
+ => => exporting manifest sha256:5b7d4bdfdeb9dd7ff3e54c2e9c9fceaa54c52654391a572ebc6a419f2fec199c                                       0.0s 
+ => => exporting config sha256:973dff17020eced67351d3d27c0557147c94db3e3da2c63f038b3a41706175b9                                         0.0s 
+ => => exporting attestation manifest sha256:6badbeadbd5b3391650858c0937dc10519dd2a42f8bf2801773036ed6a48e963                           0.0s 
+ => => exporting manifest list sha256:be6a79f0aa7e1e853b79735c57eb0887c627013302c4e08b78fc906c6ee63c47                                  0.0s 
+ => => naming to docker.io/library/my-kafka:3.9.2-jdk21                                                                                 0.0s 
+ => => unpacking to docker.io/library/my-kafka:3.9.2-jdk21                                                                              1.8s 
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/97c5vjteebiqhcyt05a9f7v3x
+```
+
+![img.png](/assets/docker/my-kafka-img.png)
+
+构建完成验证：
+
+```shell
+docker images | findstr my-kafka
+WARNING: This output is designed for human readability. For machine-readable output, please use --format.
+my-kafka:3.9.2-jdk21     be6a79f0aa7e        781MB          319MB  
+```
+
+#### 导出离线 tar 包
+
+```shell
+docker save -o my-kafka-3.9.2-jdk21.tar my-kafka:3.9.2-jdk21
+```
+
+#### 导入到 kind 所有节点
+
+```shell
+#### 拷贝到容器 control-plane 内/var目录，不要用/tmp
+docker cp my-kafka-3.9.2-jdk21.tar kafka-lab-control-plane:/var/my-kafka-3.9.2-jdk21.tar
+Successfully copied 319MB (transferred 319MB) to kafka-lab-control-plane:/var/my-kafka-3.9.2-jdk21.tar
+
+#### 导入镜像
+docker exec kafka-lab-control-plane ctr -n k8s.io images import /var/my-kafka-3.9.2-jdk21.tar
+docker.io/library/my kafka:3.9.2 jdk21          saved
+application/vnd.oci.image.index.v1+json sha256:be6a79f0aa7e1e853b79735c57eb0887c627013302c4e08b78fc906c6ee63c47
+Importing       elapsed: 5.3 s  total:   0.0 B  (0.0 B/s)
+
+#### 验证镜像是否导入成功
+docker exec kafka-lab-control-plane ctr -n k8s.io images list | Select-String my-kafka
+docker.io/library/my-kafka:3.9.2-jdk21                                                    application/vnd.oci.image.index.v1+json
+        sha256:be6a79f0aa7e1e853b79735c57eb0887c627013302c4e08b78fc906c6ee63c47 304.2 MiB linux/amd64
+                           io.cri-containerd.image=managed
+```
+
+同样需要导入到 worker 节点：
+
+```shell
+# worker
+docker cp my-kafka-3.9.2-jdk21.tar kafka-lab-worker:/var/my-kafka-3.9.2-jdk21.tar
+docker exec kafka-lab-worker ctr -n k8s.io images import /var/my-kafka-3.9.2-jdk21.tar
+docker exec kafka-lab-worker ctr -n k8s.io images list | Select-String my-kafka
+
+# worker2
+docker cp my-kafka-3.9.2-jdk21.tar kafka-lab-worker2:/var/my-kafka-3.9.2-jdk21.tar
+docker exec kafka-lab-worker2 ctr -n k8s.io images import /var/my-kafka-3.9.2-jdk21.tar
+docker exec kafka-lab-worker2 ctr -n k8s.io images list | Select-String my-kafka
+```
+
+```shell
+kubectl apply -f kafka-kraft.yaml -n kafka
+service/kafka-0 created
+service/kafka-1 created
+service/kafka-2 created
+statefulset.apps/kafka created
+```
+
+## 验收 Kafka 集群
+
+### 登录 pod 节点并查看环境变量
+
+随机登录一个 pod 节点：
+
+```shell
+kubectl exec -it kafka-controller-0 -n kafka -- bash
+```
+
+查看内置环境变量，执行`env`命令：
+
+```shell
+## 执行env命令
+env
+KUBERNETES_SERVICE_PORT_HTTPS=443
+KUBERNETES_SERVICE_PORT=443
+KAFKA_INTER_BROKER_PASSWORD=y9tujvPg9Y
+HOSTNAME=kafka-controller-0
+KAFKA_INTER_BROKER_USER=inter_broker_user
+JAVA_HOME=/opt/bitnami/java
+KAFKA_KRAFT_CLUSTER_ID=MkYxZjQzNzItODQzMi00YzE4LWI4MDItYjE4MDIwNzI4YjY2
+KAFKA_PORT_9092_TCP_PROTO=tcp
+PWD=/
+OS_FLAVOUR=debian-12
+KAFKA_PORT=tcp://10.96.125.41:9092
+HOME=/
+KUBERNETES_PORT_443_TCP=tcp://10.96.0.1:443
+KAFKA_SERVICE_HOST=10.96.125.41
+KAFKA_HEAP_OPTS=-Xmx1024m -Xms1024m
+BITNAMI_DEBUG=false
+KAFKA_PORT_9092_TCP_PORT=9092
+TERM=xterm
+KAFKA_SERVICE_PORT=9092
+KAFKA_PORT_9092_TCP_ADDR=10.96.125.41
+KAFKA_PORT_9092_TCP=tcp://10.96.125.41:9092
+SHLVL=1
+KUBERNETES_PORT_443_TCP_PROTO=tcp
+BITNAMI_APP_NAME=kafka
+KUBERNETES_PORT_443_TCP_ADDR=10.96.0.1
+APP_VERSION=3.9.0
+KUBERNETES_SERVICE_HOST=10.96.0.1
+KUBERNETES_PORT=tcp://10.96.0.1:443
+KUBERNETES_PORT_443_TCP_PORT=443
+OS_NAME=linux
+PATH=/opt/bitnami/common/bin:/opt/bitnami/java/bin:/opt/bitnami/kafka/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+KAFKA_KRAFT_BOOTSTRAP_SCRAM_USERS=true
+KAFKA_SERVICE_PORT_TCP_CLIENT=9092
+OS_ARCH=amd64
+_=/usr/bin/env
+
+## 执行hostname命令
+I have no name!@kafka-controller-0:/$ hostname 
+kafka-controller-0
+I have no name!@kafka-controller-0:/$ hostname -i
+10.244.1.82
+```
+
+结果中的`KAFKA_PORT`是 Kafka 集群对外的监听地址和端口。
+
+### 测试 Broker 网络连通（基础）
+
+Kafka 集群的地址是KAFKA_PORT=tcp://10.96.125.41:9092`
+
+```shell
+kafka-broker-api-versions.sh --bootstrap-server 10.96.125.41:9092
+kafka-controller-0.kafka-controller-headless.kafka.svc.cluster.local:9092 (id: 0 rack: null) -> (
+        Produce(0): 0 to 11 [usable: 11],
+        Fetch(1): 0 to 17 [usable: 17],
+        ListOffsets(2): 0 to 9 [usable: 9],
+        Metadata(3): 0 to 12 [usable: 12],
+        LeaderAndIsr(4): UNSUPPORTED,
+        StopReplica(5): UNSUPPORTED,
+        UpdateMetadata(6): UNSUPPORTED,
+        ControlledShutdown(7): UNSUPPORTED,
+        OffsetCommit(8): 0 to 9 [usable: 9],
+        OffsetFetch(9): 0 to 9 [usable: 9],
+        FindCoordinator(10): 0 to 6 [usable: 6],
+        JoinGroup(11): 0 to 9 [usable: 9],
+        Heartbeat(12): 0 to 4 [usable: 4],
+        LeaveGroup(13): 0 to 5 [usable: 5],
+        SyncGroup(14): 0 to 5 [usable: 5],
+        DescribeGroups(15): 0 to 5 [usable: 5],
+        ListGroups(16): 0 to 5 [usable: 5],
+        SaslHandshake(17): 0 to 1 [usable: 1],
+        ApiVersions(18): 0 to 4 [usable: 4],
+        CreateTopics(19): 0 to 7 [usable: 7],
+        DeleteTopics(20): 0 to 6 [usable: 6],
+        DeleteRecords(21): 0 to 2 [usable: 2],
+        InitProducerId(22): 0 to 5 [usable: 5],
+        OffsetForLeaderEpoch(23): 0 to 4 [usable: 4],
+        AddPartitionsToTxn(24): 0 to 5 [usable: 5],
+        AddOffsetsToTxn(25): 0 to 4 [usable: 4],
+        EndTxn(26): 0 to 4 [usable: 4],
+        WriteTxnMarkers(27): 0 to 1 [usable: 1],
+        TxnOffsetCommit(28): 0 to 4 [usable: 4],
+        DescribeAcls(29): 0 to 3 [usable: 3],
+        CreateAcls(30): 0 to 3 [usable: 3],
+        DeleteAcls(31): 0 to 3 [usable: 3],
+        DescribeConfigs(32): 0 to 4 [usable: 4],
+        AlterConfigs(33): 0 to 2 [usable: 2],
+        AlterReplicaLogDirs(34): 0 to 2 [usable: 2],
+        DescribeLogDirs(35): 0 to 4 [usable: 4],
+        SaslAuthenticate(36): 0 to 2 [usable: 2],
+        CreatePartitions(37): 0 to 3 [usable: 3],
+        CreateDelegationToken(38): 0 to 3 [usable: 3],
+        RenewDelegationToken(39): 0 to 2 [usable: 2],
+        ExpireDelegationToken(40): 0 to 2 [usable: 2],
+        DescribeDelegationToken(41): 0 to 3 [usable: 3],
+        DeleteGroups(42): 0 to 2 [usable: 2],
+        ElectLeaders(43): 0 to 2 [usable: 2],
+        IncrementalAlterConfigs(44): 0 to 1 [usable: 1],
+        AlterPartitionReassignments(45): 0 [usable: 0],
+        ListPartitionReassignments(46): 0 [usable: 0],
+        OffsetDelete(47): 0 [usable: 0],
+        DescribeClientQuotas(48): 0 to 1 [usable: 1],
+        AlterClientQuotas(49): 0 to 1 [usable: 1],
+        DescribeUserScramCredentials(50): 0 [usable: 0],
+        AlterUserScramCredentials(51): 0 [usable: 0],
+        DescribeQuorum(55): 0 to 2 [usable: 2],
+        AlterPartition(56): UNSUPPORTED,
+        UpdateFeatures(57): 0 to 1 [usable: 1],
+        Envelope(58): UNSUPPORTED,
+        DescribeCluster(60): 0 to 1 [usable: 1],
+        DescribeProducers(61): 0 [usable: 0],
+        UnregisterBroker(64): 0 [usable: 0],
+        DescribeTransactions(65): 0 [usable: 0],
+        ListTransactions(66): 0 to 1 [usable: 1],
+        AllocateProducerIds(67): UNSUPPORTED,
+        ConsumerGroupHeartbeat(68): 0 [usable: 0],
+        ConsumerGroupDescribe(69): 0 [usable: 0],
+        GetTelemetrySubscriptions(71): UNSUPPORTED,
+        PushTelemetry(72): UNSUPPORTED,
+        ListClientMetricsResources(74): 0 [usable: 0],
+        DescribeTopicPartitions(75): 0 [usable: 0],
+        ShareGroupHeartbeat(76): UNSUPPORTED,
+        ShareGroupDescribe(77): UNSUPPORTED,
+        ShareFetch(78): UNSUPPORTED,
+        ShareAcknowledge(79): UNSUPPORTED,
+        AddRaftVoter(80): 0 [usable: 0],
+        RemoveRaftVoter(81): 0 [usable: 0],
+        InitializeShareGroupState(83): UNSUPPORTED,
+        ReadShareGroupState(84): UNSUPPORTED,
+        WriteShareGroupState(85): UNSUPPORTED,
+        DeleteShareGroupState(86): UNSUPPORTED,
+        ReadShareGroupStateSummary(87): UNSUPPORTED
+)
+kafka-controller-2.kafka-controller-headless.kafka.svc.cluster.local:9092 (id: 2 rack: null) -> (
+        Produce(0): 0 to 11 [usable: 11],
+        Fetch(1): 0 to 17 [usable: 17],
+        ListOffsets(2): 0 to 9 [usable: 9],
+        Metadata(3): 0 to 12 [usable: 12],
+        LeaderAndIsr(4): UNSUPPORTED,
+        StopReplica(5): UNSUPPORTED,
+        UpdateMetadata(6): UNSUPPORTED,
+        ControlledShutdown(7): UNSUPPORTED,
+        OffsetCommit(8): 0 to 9 [usable: 9],
+        OffsetFetch(9): 0 to 9 [usable: 9],
+        FindCoordinator(10): 0 to 6 [usable: 6],
+        JoinGroup(11): 0 to 9 [usable: 9],
+        Heartbeat(12): 0 to 4 [usable: 4],
+        LeaveGroup(13): 0 to 5 [usable: 5],
+        SyncGroup(14): 0 to 5 [usable: 5],
+        DescribeGroups(15): 0 to 5 [usable: 5],
+        ListGroups(16): 0 to 5 [usable: 5],
+        SaslHandshake(17): 0 to 1 [usable: 1],
+        ApiVersions(18): 0 to 4 [usable: 4],
+        CreateTopics(19): 0 to 7 [usable: 7],
+        DeleteTopics(20): 0 to 6 [usable: 6],
+        DeleteRecords(21): 0 to 2 [usable: 2],
+        InitProducerId(22): 0 to 5 [usable: 5],
+        OffsetForLeaderEpoch(23): 0 to 4 [usable: 4],
+        AddPartitionsToTxn(24): 0 to 5 [usable: 5],
+        AddOffsetsToTxn(25): 0 to 4 [usable: 4],
+        EndTxn(26): 0 to 4 [usable: 4],
+        WriteTxnMarkers(27): 0 to 1 [usable: 1],
+        TxnOffsetCommit(28): 0 to 4 [usable: 4],
+        DescribeAcls(29): 0 to 3 [usable: 3],
+        CreateAcls(30): 0 to 3 [usable: 3],
+        DeleteAcls(31): 0 to 3 [usable: 3],
+        DescribeConfigs(32): 0 to 4 [usable: 4],
+        AlterConfigs(33): 0 to 2 [usable: 2],
+        AlterReplicaLogDirs(34): 0 to 2 [usable: 2],
+        DescribeLogDirs(35): 0 to 4 [usable: 4],
+        SaslAuthenticate(36): 0 to 2 [usable: 2],
+        CreatePartitions(37): 0 to 3 [usable: 3],
+        CreateDelegationToken(38): 0 to 3 [usable: 3],
+        RenewDelegationToken(39): 0 to 2 [usable: 2],
+        ExpireDelegationToken(40): 0 to 2 [usable: 2],
+        DescribeDelegationToken(41): 0 to 3 [usable: 3],
+        DeleteGroups(42): 0 to 2 [usable: 2],
+        ElectLeaders(43): 0 to 2 [usable: 2],
+        IncrementalAlterConfigs(44): 0 to 1 [usable: 1],
+        AlterPartitionReassignments(45): 0 [usable: 0],
+        ListPartitionReassignments(46): 0 [usable: 0],
+        OffsetDelete(47): 0 [usable: 0],
+        DescribeClientQuotas(48): 0 to 1 [usable: 1],
+        AlterClientQuotas(49): 0 to 1 [usable: 1],
+        DescribeUserScramCredentials(50): 0 [usable: 0],
+        AlterUserScramCredentials(51): 0 [usable: 0],
+        DescribeQuorum(55): 0 to 2 [usable: 2],
+        AlterPartition(56): UNSUPPORTED,
+        UpdateFeatures(57): 0 to 1 [usable: 1],
+        Envelope(58): UNSUPPORTED,
+        DescribeCluster(60): 0 to 1 [usable: 1],
+        DescribeProducers(61): 0 [usable: 0],
+        UnregisterBroker(64): 0 [usable: 0],
+        DescribeTransactions(65): 0 [usable: 0],
+        ListTransactions(66): 0 to 1 [usable: 1],
+        AllocateProducerIds(67): UNSUPPORTED,
+        ConsumerGroupHeartbeat(68): 0 [usable: 0],
+        ConsumerGroupDescribe(69): 0 [usable: 0],
+        GetTelemetrySubscriptions(71): UNSUPPORTED,
+        PushTelemetry(72): UNSUPPORTED,
+        ListClientMetricsResources(74): 0 [usable: 0],
+        DescribeTopicPartitions(75): 0 [usable: 0],
+        ShareGroupHeartbeat(76): UNSUPPORTED,
+        ShareGroupDescribe(77): UNSUPPORTED,
+        ShareFetch(78): UNSUPPORTED,
+        ShareAcknowledge(79): UNSUPPORTED,
+        AddRaftVoter(80): 0 [usable: 0],
+        RemoveRaftVoter(81): 0 [usable: 0],
+        InitializeShareGroupState(83): UNSUPPORTED,
+        ReadShareGroupState(84): UNSUPPORTED,
+        WriteShareGroupState(85): UNSUPPORTED,
+        DeleteShareGroupState(86): UNSUPPORTED,
+        ReadShareGroupStateSummary(87): UNSUPPORTED
+)
+kafka-controller-1.kafka-controller-headless.kafka.svc.cluster.local:9092 (id: 1 rack: null) -> (
+        Produce(0): 0 to 11 [usable: 11],
+        Fetch(1): 0 to 17 [usable: 17],
+        ListOffsets(2): 0 to 9 [usable: 9],
+        Metadata(3): 0 to 12 [usable: 12],
+        LeaderAndIsr(4): UNSUPPORTED,
+        StopReplica(5): UNSUPPORTED,
+        UpdateMetadata(6): UNSUPPORTED,
+        ControlledShutdown(7): UNSUPPORTED,
+        OffsetCommit(8): 0 to 9 [usable: 9],
+        OffsetFetch(9): 0 to 9 [usable: 9],
+        FindCoordinator(10): 0 to 6 [usable: 6],
+        JoinGroup(11): 0 to 9 [usable: 9],
+        Heartbeat(12): 0 to 4 [usable: 4],
+        LeaveGroup(13): 0 to 5 [usable: 5],
+        SyncGroup(14): 0 to 5 [usable: 5],
+        DescribeGroups(15): 0 to 5 [usable: 5],
+        ListGroups(16): 0 to 5 [usable: 5],
+        SaslHandshake(17): 0 to 1 [usable: 1],
+        ApiVersions(18): 0 to 4 [usable: 4],
+        CreateTopics(19): 0 to 7 [usable: 7],
+        DeleteTopics(20): 0 to 6 [usable: 6],
+        DeleteRecords(21): 0 to 2 [usable: 2],
+        InitProducerId(22): 0 to 5 [usable: 5],
+        OffsetForLeaderEpoch(23): 0 to 4 [usable: 4],
+        AddPartitionsToTxn(24): 0 to 5 [usable: 5],
+        AddOffsetsToTxn(25): 0 to 4 [usable: 4],
+        EndTxn(26): 0 to 4 [usable: 4],
+        WriteTxnMarkers(27): 0 to 1 [usable: 1],
+        TxnOffsetCommit(28): 0 to 4 [usable: 4],
+        DescribeAcls(29): 0 to 3 [usable: 3],
+        CreateAcls(30): 0 to 3 [usable: 3],
+        DeleteAcls(31): 0 to 3 [usable: 3],
+        DescribeConfigs(32): 0 to 4 [usable: 4],
+        AlterConfigs(33): 0 to 2 [usable: 2],
+        AlterReplicaLogDirs(34): 0 to 2 [usable: 2],
+        DescribeLogDirs(35): 0 to 4 [usable: 4],
+        SaslAuthenticate(36): 0 to 2 [usable: 2],
+        CreatePartitions(37): 0 to 3 [usable: 3],
+        CreateDelegationToken(38): 0 to 3 [usable: 3],
+        RenewDelegationToken(39): 0 to 2 [usable: 2],
+        ExpireDelegationToken(40): 0 to 2 [usable: 2],
+        DescribeDelegationToken(41): 0 to 3 [usable: 3],
+        DeleteGroups(42): 0 to 2 [usable: 2],
+        ElectLeaders(43): 0 to 2 [usable: 2],
+        IncrementalAlterConfigs(44): 0 to 1 [usable: 1],
+        AlterPartitionReassignments(45): 0 [usable: 0],
+        ListPartitionReassignments(46): 0 [usable: 0],
+        OffsetDelete(47): 0 [usable: 0],
+        DescribeClientQuotas(48): 0 to 1 [usable: 1],
+        AlterClientQuotas(49): 0 to 1 [usable: 1],
+        DescribeUserScramCredentials(50): 0 [usable: 0],
+        AlterUserScramCredentials(51): 0 [usable: 0],
+        DescribeQuorum(55): 0 to 2 [usable: 2],
+        AlterPartition(56): UNSUPPORTED,
+        UpdateFeatures(57): 0 to 1 [usable: 1],
+        Envelope(58): UNSUPPORTED,
+        DescribeCluster(60): 0 to 1 [usable: 1],
+        DescribeProducers(61): 0 [usable: 0],
+        UnregisterBroker(64): 0 [usable: 0],
+        DescribeTransactions(65): 0 [usable: 0],
+        ListTransactions(66): 0 to 1 [usable: 1],
+        AllocateProducerIds(67): UNSUPPORTED,
+        ConsumerGroupHeartbeat(68): 0 [usable: 0],
+        ConsumerGroupDescribe(69): 0 [usable: 0],
+        GetTelemetrySubscriptions(71): UNSUPPORTED,
+        PushTelemetry(72): UNSUPPORTED,
+        ListClientMetricsResources(74): 0 [usable: 0],
+        DescribeTopicPartitions(75): 0 [usable: 0],
+        ShareGroupHeartbeat(76): UNSUPPORTED,
+        ShareGroupDescribe(77): UNSUPPORTED,
+        ShareFetch(78): UNSUPPORTED,
+        ShareAcknowledge(79): UNSUPPORTED,
+        AddRaftVoter(80): 0 [usable: 0],
+        RemoveRaftVoter(81): 0 [usable: 0],
+        InitializeShareGroupState(83): UNSUPPORTED,
+        ReadShareGroupState(84): UNSUPPORTED,
+        WriteShareGroupState(85): UNSUPPORTED,
+        DeleteShareGroupState(86): UNSUPPORTED,
+        ReadShareGroupStateSummary(87): UNSUPPORTED
+)
+```
+
+输出的是所有broker的 API 版本信息。
+
+### KRaft 集群（无ZK）验证集群仲裁
+
+```shell
+kafka-metadata-quorum.sh --bootstrap-server 10.96.125.41:9092 describe --status
+ClusterId:              MkYxZjQzNzItODQzMi00YzE4LWI4MDItYjE4MDIwNzI4YjY2
+LeaderId:               2
+LeaderEpoch:            92
+HighWatermark:          10228
+MaxFollowerLag:         0
+MaxFollowerLagTimeMs:   250
+CurrentVoters:          [{"id": 0, "directoryId": null, "endpoints": ["CONTROLLER://kafka-controller-0.kafka-controller-headless.kafka.svc.cluster.local:9093"]}, {"id": 1, "directoryId": null, "endpoints": ["CONTROLLER://kafka-controller-1.kafka-controller-headless.kafka.svc.cluster.local:9093"]}, {"id": 2, "directoryId": null, "endpoints": ["CONTROLLER://kafka-controller-2.kafka-controller-headless.kafka.svc.cluster.local:9093"]}]
+CurrentObservers:       []
+
+kafka-metadata-quorum.sh --bootstrap-server 10.96.125.41:9092 describe --replication --human-readable
+NodeId  DirectoryId             LogEndOffset    Lag     LastFetchTimestamp      LastCaughtUpTimestamp   Status  
+2       AAAAAAAAAAAAAAAAAAAAAA  35172           0       27 ms ago               27 ms ago               Leader  
+0       AAAAAAAAAAAAAAAAAAAAAA  35172           0       458 ms ago              458 ms ago              Follower
+1       AAAAAAAAAAAAAAAAAAAAAA  35172           0       458 ms ago              459 ms ago              Follower
+```
+
+可以看出Leader（控制器）存在，是节点`kafka-controller-2`，集群节点同步正常。
+
+### ZK 模式验证 Zookeeper 连通（老版本）
+
+```shell
+zookeeper-shell.sh 10.96.125.41:2181 ls /brokers/ids
+```
+
+### 创建测试 Topic
+
+```shell
+kafka-topics.sh \
+--bootstrap-server 10.96.125.41:9092 \
+--create \
+--topic test_cluster_health \
+--partitions 3 \
+--replication-factor 2
+
+WARNING: Due to limitations in metric names, topics with a period ('.') or underscore ('_') could collide. To avoid issues it is best to use either, but not both.
+Created topic test_cluster_health.
+```
+
+topic可以正常创建，集群正常。
+
+### 查看topic列表
+
+```shell
+kafka-topics.sh --bootstrap-server 10.96.125.41:9092 --describe
+Topic: test_cluster_health      TopicId: aAPDcKgGRTCjViXM85VXnw PartitionCount: 3       ReplicationFactor: 2    Configs:
+        Topic: test_cluster_health      Partition: 0    Leader: 1       Replicas: 1,2   Isr: 1,2        Elr:    LastKnownElr:
+        Topic: test_cluster_health      Partition: 1    Leader: 2       Replicas: 2,0   Isr: 2,0        Elr:    LastKnownElr:
+        Topic: test_cluster_health      Partition: 2    Leader: 0       Replicas: 0,1   Isr: 0,1        Elr:    LastKnownElr:
+
+# 或
+kafka-topics.sh --bootstrap-server 10.96.125.41:9092 --list    
+test_cluster_health
+
+# 或
+kafka-topics.sh --bootstrap-server 10.96.125.41:9092 --topic test_cluster_health --describe
+```
+
+topic信息展示正常。ISR 列表 = Replicas 列表（所有副本同步正常）
+
+### 生产 & 消费消息
+
+```shell
+# 生产
+kafka-console-producer.sh \
+--bootstrap-server 10.96.125.41:9092 \
+--topic test_cluster_health
+
+# 输入任意文字回车发送
+
+# 消费
+kafka-console-consumer.sh \
+--bootstrap-server 10.96.125.41:9092 \
+--topic test_cluster_health \
+--from-beginning
+```
+
+## 外部连接容器
+
+端口转发：
+
+```shell
+kubectl port-forward service/kafka 9092:9092 -n kafka --context kind-kafka-lab
+```
+
+或者在docker desktop直接配置：
+
+![port_forward](/assets/docker/port_forward.png)
+
+客户端连接参数：
+
+```shell
+bootstrap.servers = 127.0.0.1:9092
+```
+
+## 总结：docker / kind / kubectl / helm 的关系层级
+
+```text
+你的Windows电脑
+    ↓ docker（管理容器镜像、本地容器）
+        ↓ kind（利用docker启动一整套K8s集群）
+            ↓ kubernetes集群内部
+                ├ kubectl：K8s集群的遥控器（操作集群资源pod/svc/ns）
+                └ helm：K8s上的应用安装包管理器（基于kubectl和K8s API）
+```
+
+
+| 工具      | 定位                           | 类比                     | 管辖范围                |
+|---------|------------------------------|------------------------|---------------------|
+| docker  | 容器引擎，负责拉镜像、启停容器              | 汽车发动机                  | Windows 本机所有容器      | 
+| kind    | 使用 docker 快速搭建一套完整 K8s 集群的工具 | 用发动机组装一整辆公交车 (K8s)     | 创建 / 删除整套 K8s 环境    |
+| kubectl | K8s 集群官方客户端，K8s 遥控器          | 公交车上的控制面板，控制车内乘客 (Pod) | 某一套正在运行的 K8s 集群内部资源 |
+| helm    | K8s 应用包管理工具，封装批量 yaml        | 一键套餐安装程序，底层调用 kubectl  | 向 K8s 集群批量部署应用      |
+
+#### 1. docker：只管【容器、镜像】
+
+✅ 工作范围：Windows 本机 Docker Desktop
+
+**只认识容器、镜像、网络卷**；完全不懂 Pod、Namespace、K8s
+
+常用命令：
+```shell
+docker pull xxx        # 拉镜像
+docker images          # 查看本地镜像
+docker ps              # 查看正在运行容器（kind集群本质就是一堆docker容器）
+docker stop 容器id     # 停止容器
+```
+> 重点：kind 集群就是 docker 容器！你执行 kind create cluster，底层就是 docker 启动多个容器组成 K8s 控制面 + 节点。
+
+#### 2. kind：用 docker 搭建「整套 K8s 环境」
+
+kind = K8s 集群生成器
+
+**只管两件大事：创建集群、销毁集群。**
+
+```shell
+kind create cluster    # 创建一套全新K8s集群（一堆docker容器诞生）
+kind delete cluster    # 销毁整套K8s（所有节点容器全部删除）
+kind get clusters      # 查看本机存在多少套独立K8s
+kind load docker-image # 把Windows本地docker镜像导入kind集群内部（超级常用）
+```
+
+> ⚠️ kind 不管理 Pod、不管理 kafka！它只负责把 K8s 平台搭出来。
+搭好平台之后，kind 任务完成，后续部署应用交给 kubectl/helm。
+
+#### 3. kubectl：K8s 的原生遥控器（核心中枢）
+
+只要你想操作K8s 集群里面的资源，全都靠它。
+
+前提：必须通过 context 选定要连接哪一套 kind 集群。
+
+操作对象：Node、Namespace、Pod、Service、PVC、ConfigMap……
+
+```shell
+kubectl config get-contexts   # 查看可以连接哪些K8s集群（读取本地文件，不连集群）
+kubectl get nodes             # 查看当前K8s集群节点（kind创建出来的3个节点）
+kubectl create ns kafka       # 在K8s集群内创建命名空间
+kubectl get pods -n kafka     # 查询kafka命名空间下pod
+kubectl port-forward          # 端口转发
+kubectl delete pod xxx        # 删除Pod
+```
+> kubectl 本身不会创建容器！只是发指令给 K8s，由 K8s 调度容器。
+
+####  4. helm：建立在 kubectl 之上的「应用安装工具」
+
+helm 不能独立工作，依赖 kubectl 连通 K8s 集群。
+
+原生 kubectl 部署中间件需要手写几十份 yaml。
+
+helm 把一堆 yaml 打包成 Chart，一键部署整套应用（Kafka 集群）。
+
+```shell
+helm repo add       # 添加软件源
+helm repo update    # 更新源缓存
+helm install        # 部署应用到K8s集群（内部调用kubectl创建各类资源）
+helm uninstall      # 卸载整套应用
+helm upgrade        # 修改配置后更新集群
+```
+
+工作链路：
+helm → 渲染 yaml 模板 → 调用 kubectl → 请求发送给 K8s → 创建 Pod/Service/PVC
+
+#### 5. 完整流程串起来，直观看懂先后关系
+
+```text
+1. kind create cluster   【docker启动容器，组装出一套K8s集群】
+2. kubectl 创建命名空间 【遥控器操作刚搭建好的K8s】
+3. helm install kafka    【helm借助kubectl，向K8s申请创建ZK、Kafka所有资源】
+4. K8s收到指令，通知docker拉取镜像，启动kafka容器
+```
+
+#### 6. 最容易混淆的几组对比（高频误区）
+
+1. kind cluster VS namespace
+
+    kind cluster：一整套独立 K8s 环境（大楼），由 kind 创建删除
+    
+    namespace：K8s 集群内部逻辑分区（大楼里房间），kubectl 操作
+
+2. docker ps VS kubectl get pods
+
+    docker ps：看到 Windows 层面原始容器（kind 节点、kafka 容器全部混在一起）
+    
+    kubectl get pods：从 K8s 视角查看应用，抽象了底层容器细节
+
+3. helm 和 kubectl
+
+    helm ≠ 替代品。
+
+    helm = 批量生成 yaml 的工具；最终真正创建资源依旧靠 kubectl 和 K8s。
+   
+    > 如果不用 helm：需要手写大量 yaml，然后 kubectl apply -f xxx.yaml
+
+#### 7. 极简记忆口诀
+
+docker：管容器镜像（地基）
+
+kind：用 docker 搭出 K8s 平台（整栋楼）
+
+kubectl：操控 K8s 大楼内部一切资源（遥控器）
+
+helm：一键装修套餐，借助遥控器批量布置房间（部署 kafka）
+
+#### 8. 一个判断小技巧（以后分不清命令时自查）
+
+命令开头 kind → 操作【整套 K8s 环境】
+
+命令开头 docker → 操作【底层容器 / 镜像】
+
+命令开头 kubectl → 操作【正在运行的 K8s 集群内资源】
+
+命令开头 helm → 【在 K8s 里安装 / 升级应用】
+
+
+## kubectl 常用命令
+
+### 查看所有资源：kubectl get all
+
+```shell
+kubectl get all
+NAME                 TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+service/kubernetes   ClusterIP   10.96.0.1    <none>        443/TCP   7h28m
+```
+
+### 查看所有命名空间：kubectl get namespaces
+
+```shell
+kubectl get namespaces
+NAME                 STATUS   AGE
+default              Active   7h31m
+kafka                Active   14m
+kube-node-lease      Active   7h31m
+kube-public          Active   7h31m
+kube-system          Active   7h31m
+local-path-storage   Active   7h31m
+```
+
+### 查看所有 Pod：kubectl get pods
+
+```shell
+kubectl get pods -n kafka
+NAME                 READY   STATUS                  RESTARTS   AGE
+kafka-controller-0   0/1     Init:ImagePullBackOff   0          15m
+kafka-controller-1   0/1     Init:ImagePullBackOff   0          15m
+kafka-controller-2   0/1     Init:ImagePullBackOff   0          15m
+```
+
+### 查看所有 Service：kubectl get services
+
+```shell
+kubectl get services -n kafka 
+NAME                        TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                      AGE
+kafka                       ClusterIP   10.96.197.45   <none>        9092/TCP                     20m
+kafka-controller-headless   ClusterIP   None           <none>        9094/TCP,9092/TCP,9093/TCP   20m
+```
+
+### 查看所有 PVC：kubectl get pvc
+
+```shell
+kubectl get pvc -n kafka     
+NAME                      STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+data-kafka-controller-0   Bound    pvc-ee47585f-de4f-4034-bc77-073c6c058803   8Gi        RWO            standard       <unset>               
+  20m
+data-kafka-controller-1   Bound    pvc-7a751086-e8bc-4f3f-b3ed-32421684e135   8Gi        RWO            standard       <unset>               
+  20m
+data-kafka-controller-2   Bound    pvc-ec42ffa8-6146-40e9-9a53-b2c137afc1a1   8Gi        RWO            standard       <unset>               
+  20m
+```
+
+### 查看所有 StatefulSet：kubectl get statefulsets
+
+```shell
+kubectl get statefulsets -n kafka
+NAME               READY   AGE
+kafka-controller   0/3     22m
+```
+
+### 查看 Pod 详情：kubectl describe pod
+
+```shell
+kubectl describe pod kafka-controller-0 -n kafka
+Name:             kafka-controller-0
+Namespace:        kafka
+Priority:         0
+Service Account:  kafka
+Node:             kafka-lab-worker2/172.18.0.4
+Start Time:       Thu, 23 Jul 2026 00:21:39 +0800
+Labels:           app.kubernetes.io/component=controller-eligible
+                  app.kubernetes.io/instance=kafka
+                  app.kubernetes.io/managed-by=Helm
+                  app.kubernetes.io/name=kafka
+                  app.kubernetes.io/part-of=kafka
+                  app.kubernetes.io/version=4.0.0
+                  apps.kubernetes.io/pod-index=0
+                  controller-revision-hash=kafka-controller-77dbc9985b
+                  helm.sh/chart=kafka-32.4.4
+                  statefulset.kubernetes.io/pod-name=kafka-controller-0
+Annotations:      checksum/configuration: 0323b49ef5470b18fa08a2077378acbb072f2752ad2d98ea05a8041feeb50ec7
+                  checksum/secret: eb1dabb90e9277aefc8bbbde766e7b849d3d379ad4575874705441fcace3acdf
+Status:           Pending
+SeccompProfile:   RuntimeDefault
+IP:               10.244.1.10
+IPs:
+  IP:           10.244.1.10
+Controlled By:  StatefulSet/kafka-controller
+Init Containers:
+  prepare-config:
+    Container ID:
+    Image:           docker.io/bitnami/kafka:4.0.0-debian-12-r10
+    Image ID:
+    Port:            <none>
+    Host Port:       <none>
+    SeccompProfile:  RuntimeDefault
+    Command:
+      /bin/bash
+    Args:
+      -ec
+      . /opt/bitnami/scripts/libkafka.sh
+      configure_kafka_sasl() {
+          # Replace placeholders with passwords
+          replace_in_file "$KAFKA_CONF_FILE" "interbroker-password-placeholder" "$KAFKA_INTER_BROKER_PASSWORD"
+          replace_in_file "$KAFKA_CONF_FILE" "controller-password-placeholder" "$KAFKA_CONTROLLER_PASSWORD"
+          read -r -a passwords <<< "$(tr ',;' ' ' <<<"${KAFKA_CLIENT_PASSWORDS:-}")"
+          for ((i = 0; i < ${#passwords[@]}; i++)); do
+              replace_in_file "$KAFKA_CONF_FILE" "password-placeholder-${i}\"" "${passwords[i]}\""
+          done
+      }
+
+      cp /configmaps/server.properties $KAFKA_CONF_FILE
+
+      # Get pod ID and role, last and second last fields in the pod name respectively
+      POD_ID="${MY_POD_NAME##*-}"
+      POD_ROLE="${MY_POD_NAME%-*}"; POD_ROLE="${POD_ROLE##*-}"
+
+      # Configure node.id
+      ID=$((POD_ID + KAFKA_MIN_ID))
+      [[ -f "/bitnami/kafka/data/meta.properties" ]] && ID="$(grep "node.id" /bitnami/kafka/data/meta.properties | awk -F '=' '{print $2}')" 
+      kafka_server_conf_set "node.id" "$ID"
+      # Configure initial controllers
+      if [[ "controller" =~ "$POD_ROLE" ]]; then
+          INITIAL_CONTROLLERS=()
+          for ((i = 0; i < 3; i++)); do
+              var="KAFKA_CONTROLLER_${i}_DIR_ID"; DIR_ID="${!var}"
+              [[ $i -eq $POD_ID ]] && [[ -f "/bitnami/kafka/data/meta.properties" ]] && DIR_ID="$(grep "directory.id" /bitnami/kafka/data/meta.properties | awk -F '=' '{print $2}')"
+              INITIAL_CONTROLLERS+=("${i}@${KAFKA_FULLNAME}-${POD_ROLE}-${i}.${KAFKA_CONTROLLER_SVC_NAME}.${MY_POD_NAMESPACE}.svc.${CLUSTER_DOMAIN}:${KAFKA_CONTROLLER_PORT}:${DIR_ID}")
+          done
+          echo "${INITIAL_CONTROLLERS[*]}" | awk -v OFS=',' '{$1=$1}1' > /shared/initial-controllers.txt
+      fi
+      replace_in_file "$KAFKA_CONF_FILE" "advertised-address-placeholder" "${MY_POD_NAME}.${KAFKA_FULLNAME}-${POD_ROLE}-headless.${MY_POD_NAMESPACE}.svc.${CLUSTER_DOMAIN}"
+      sasl_env_vars=(
+        KAFKA_CLIENT_PASSWORDS
+        KAFKA_INTER_BROKER_PASSWORD
+        KAFKA_INTER_BROKER_CLIENT_SECRET
+        KAFKA_CONTROLLER_PASSWORD
+        KAFKA_CONTROLLER_CLIENT_SECRET
+      )
+      for env_var in "${sasl_env_vars[@]}"; do
+          file_env_var="${env_var}_FILE"
+          if [[ -n "${!file_env_var:-}" ]]; then
+              if [[ -r "${!file_env_var:-}" ]]; then
+                  export "${env_var}=$(< "${!file_env_var}")"
+                  unset "${file_env_var}"
+              else
+                  warn "Skipping export of '${env_var}'. '${!file_env_var:-}' is not readable."
+              fi
+          fi
+      done
+      configure_kafka_sasl
+      if [[ -f /secret-config/server-secret.properties ]]; then
+          cat /secret-config/server-secret.properties >> $KAFKA_CONF_FILE
+      fi
+
+    State:          Waiting
+      Reason:       ImagePullBackOff
+    Ready:          False
+    Restart Count:  0
+    Limits:
+      cpu:                150m
+      ephemeral-storage:  2Gi
+      memory:             192Mi
+    Requests:
+      cpu:                100m
+      ephemeral-storage:  50Mi
+      memory:             128Mi
+    Environment:
+      BITNAMI_DEBUG:                     false
+      MY_POD_NAME:                       kafka-controller-0 (v1:metadata.name)
+      MY_POD_NAMESPACE:                  kafka (v1:metadata.namespace)
+      KAFKA_FULLNAME:                    kafka
+      CLUSTER_DOMAIN:                    cluster.local
+      KAFKA_VOLUME_DIR:                  /bitnami/kafka
+      KAFKA_CONF_FILE:                   /config/server.properties
+      KAFKA_MIN_ID:                      0
+      KAFKA_CONTROLLER_SVC_NAME:         kafka-controller-headless
+      KAFKA_CONTROLLER_PORT:             9093
+      KAFKA_CONTROLLER_0_DIR_ID:         <set to the key 'controller-0-id' in secret 'kafka-kraft'>  Optional: false
+      KAFKA_CONTROLLER_1_DIR_ID:         <set to the key 'controller-1-id' in secret 'kafka-kraft'>  Optional: false
+      KAFKA_CONTROLLER_2_DIR_ID:         <set to the key 'controller-2-id' in secret 'kafka-kraft'>  Optional: false
+      KAFKA_CLIENT_USERS:                user1
+      KAFKA_CLIENT_PASSWORDS_FILE:       /opt/bitnami/kafka/config/secrets/client-passwords
+      KAFKA_INTER_BROKER_USER:           inter_broker_user
+      KAFKA_INTER_BROKER_PASSWORD_FILE:  /opt/bitnami/kafka/config/secrets/inter-broker-password
+      KAFKA_CONTROLLER_USER:             controller_user
+      KAFKA_CONTROLLER_PASSWORD_FILE:    /opt/bitnami/kafka/config/secrets/controller-password
+    Mounts:
+      /bitnami/kafka from data (rw)
+      /config from kafka-config (rw)
+      /configmaps from kafka-configmaps (rw)
+      /opt/bitnami/kafka/config/secrets from kafka-sasl (ro)
+      /secret-config from kafka-secret-config (rw)
+      /shared from init-shared (rw)
+      /tmp from tmp (rw)
+Containers:
+  kafka:
+    Container ID:
+    Image:          docker.io/bitnami/kafka:4.0.0-debian-12-r10
+    Image ID:
+    Ports:          9093/TCP (controller), 9092/TCP (client), 9094/TCP (interbroker)
+    Host Ports:     0/TCP (controller), 0/TCP (client), 0/TCP (interbroker)
+    State:          Waiting
+      Reason:       PodInitializing
+    Ready:          False
+    Restart Count:  0
+    Limits:
+      cpu:                750m
+      ephemeral-storage:  2Gi
+      memory:             768Mi
+    Requests:
+      cpu:                500m
+      ephemeral-storage:  50Mi
+      memory:             512Mi
+    Liveness:             exec [pgrep -f kafka] delay=10s timeout=5s period=10s #success=1 #failure=3
+    Readiness:            tcp-socket :controller delay=5s timeout=5s period=10s #success=1 #failure=6
+    Environment:
+      KAFKA_HEAP_OPTS:                    -XX:InitialRAMPercentage=75 -XX:MaxRAMPercentage=75
+      KAFKA_CFG_PROCESS_ROLES:            controller,broker
+      KAFKA_INITIAL_CONTROLLERS_FILE:     /shared/initial-controllers.txt
+      BITNAMI_DEBUG:                      false
+      KAFKA_KRAFT_CLUSTER_ID:             <set to the key 'cluster-id' in secret 'kafka-kraft'>  Optional: false
+      KAFKA_KRAFT_BOOTSTRAP_SCRAM_USERS:  true
+      KAFKA_CLIENT_USERS:                 user1
+      KAFKA_CLIENT_PASSWORDS_FILE:        /opt/bitnami/kafka/config/secrets/client-passwords
+      KAFKA_INTER_BROKER_USER:            inter_broker_user
+      KAFKA_INTER_BROKER_PASSWORD_FILE:   /opt/bitnami/kafka/config/secrets/inter-broker-password
+      KAFKA_CONTROLLER_USER:              controller_user
+      KAFKA_CONTROLLER_PASSWORD_FILE:     /opt/bitnami/kafka/config/secrets/controller-password
+    Mounts:
+      /bitnami/kafka from data (rw)
+      /opt/bitnami/kafka/config/secrets from kafka-sasl (ro)
+      /opt/bitnami/kafka/config/server.properties from kafka-config (rw,path="server.properties")
+      /opt/bitnami/kafka/logs from logs (rw)
+      /shared from init-shared (rw)
+      /tmp from tmp (rw)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True
+  Initialized                 False
+  Ready                       False
+  ContainersReady             False
+  PodScheduled                True
+Volumes:
+  data:
+    Type:       PersistentVolumeClaim (a reference to a PersistentVolumeClaim in the same namespace)
+    ClaimName:  data-kafka-controller-0
+    ReadOnly:   false
+  kafka-configmaps:
+    Type:      ConfigMap (a volume populated by a ConfigMap)
+    Name:      kafka-controller-configuration
+    Optional:  false
+  kafka-secret-config:
+    Type:       EmptyDir (a temporary directory that shares a pod's lifetime)
+    Medium:
+    SizeLimit:  <unset>
+  kafka-config:
+    Type:       EmptyDir (a temporary directory that shares a pod's lifetime)
+    Medium:
+    SizeLimit:  <unset>
+  tmp:
+    Type:       EmptyDir (a temporary directory that shares a pod's lifetime)
+    Medium:
+    SizeLimit:  <unset>
+  init-shared:
+    Type:       EmptyDir (a temporary directory that shares a pod's lifetime)
+    Medium:
+    SizeLimit:  <unset>
+  kafka-sasl:
+    Type:        Projected (a volume that contains injected data from multiple sources)
+    SecretName:  kafka-user-passwords
+    Optional:    false
+  logs:
+    Type:        EmptyDir (a temporary directory that shares a pod's lifetime)
+    Medium:
+    SizeLimit:   <unset>
+QoS Class:       Burstable
+Node-Selectors:  <none>
+Tolerations:     node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                 node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+Events:
+  Type     Reason     Age                    From               Message
+  ----     ------     ----                   ----               -------
+  Normal   Scheduled  8m21s                  default-scheduler  Successfully assigned kafka/kafka-controller-0 to kafka-lab-worker2
+  Warning  Failed     6m28s (x3 over 7m58s)  kubelet            Failed to pull image "docker.io/bitnami/kafka:4.0.0-debian-12-r10": failed to pull and unpack image "docker.io/bitnami/kafka:4.0.0-debian-12-r10": failed to resolve reference "docker.io/bitnami/kafka:4.0.0-debian-12-r10": failed to do request: Head "https://registry-1.docker.io/v2/bitnami/kafka/manifests/4.0.0-debian-12-r10": dial tcp 185.45.6.103:443: connect: connection refused
+  Warning  Failed     5m8s                   kubelet            Failed to pull image "docker.io/bitnami/kafka:4.0.0-debian-12-r10": failed to pull and unpack image "docker.io/bitnami/kafka:4.0.0-debian-12-r10": failed to resolve reference "docker.io/bitnami/kafka:4.0.0-debian-12-r10": failed to do request: Head "https://registry-1.docker.io/v2/bitnami/kafka/manifests/4.0.0-debian-12-r10": dial tcp 157.240.20.18:443: connect: connection refused
+  Normal   Pulling    3m33s (x5 over 8m20s)  kubelet            Pulling image "docker.io/bitnami/kafka:4.0.0-debian-12-r10"
+  Warning  Failed     3m12s (x5 over 7m58s)  kubelet            Error: ErrImagePull
+  Warning  Failed     3m12s                  kubelet            Failed to pull image "docker.io/bitnami/kafka:4.0.0-debian-12-r10": failed to pull and unpack image "docker.io/bitnami/kafka:4.0.0-debian-12-r10": failed to resolve reference "docker.io/bitnami/kafka:4.0.0-debian-12-r10": failed to do request: Head "https://registry-1.docker.io/v2/bitnami/kafka/manifests/4.0.0-debian-12-r10": dial tcp 128.242.240.221:443: connect: connection refused
+  Warning  Failed     2m4s (x16 over 7m58s)  kubelet            Error: ImagePullBackOff
+  Normal   BackOff    51s (x21 over 7m58s)   kubelet            Back-off pulling image "docker.io/bitnami/kafka:4.0.0-debian-12-r10"
+```
+
+### 执行命令：kubectl run
+
+```shell
+kubectl run kafka-debug --image=my-kafka:3.9.2-jdk21 --rm -it -- /bin/sh
+```
+
+临时创建 Pod 的即时命令，属于 kubectl run 临时调试用法。
+
+逐条拆解含义：
+
+- `kubectl run kafka-debug`
+
+  在 K8s 集群临时创建一个 Pod，Pod 名字叫 kafka-debug
+
+- `--image=my-kafka:3.9.2-jdk21`
+
+  使用自建的 kafka 镜像启动
+
+- `--rm`
+
+  退出终端后，自动删除这个临时 Pod，不会残留资源（调试神器）
+
+- `-it`
+
+  交互式终端：i = 持续输入，t = 分配伪终端，相当于 docker run -it
+
+- `-- /bin/sh`
+
+  -- 表示：后面参数不再属于 kubectl，直接传给容器作为启动命令；
+
+  作用：容器启动后直接运行 /bin/sh，进入交互式 shell
+
+## helm 常用命令
+
+### 查看 Kafka Chart 版本：helm search repo
+
+```shell
+helm search repo bitnami/kafka --versions
+NAME            CHART VERSION   APP VERSION     DESCRIPTION
+bitnami/kafka   32.4.4          4.0.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   32.4.3          4.0.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   32.3.9          4.0.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   32.3.1          4.0.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   32.2.11         4.0.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   32.2.2          4.0.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   32.1.2          4.0.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   31.4.0          3.9.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   31.3.1          3.9.0           Apache Kafka is a distributed streaming platfor...
+bitnami/kafka   31.1.1          3.9.0
+bitnami/kafka   31.0.0          3.9.0
+bitnami/kafka   30.1.8          3.8.1
+bitnami/kafka   30.1.4          3.8.0
+bitnami/kafka   30.0.5          3.8.0
+bitnami/kafka   29.3.13         3.7.1
+bitnami/kafka   29.3.4          3.7.0
+bitnami/kafka   29.2.0          3.7.0
+bitnami/kafka   28.1.1          3.7.0
+bitnami/kafka   28.0.0          3.7.0
+bitnami/kafka   26.11.4         3.6.1
+bitnami/kafka   26.8.3          3.6.1
+```
+
+### 安装 Kafka Chart：helm install kafka
+
+```shell
+## 指定 Kafka Chart 版本
+helm install kafka bitnami/kafka --version 28.1.1 -n kafka
+```
+
+### 查看 Kafka Chart 安装信息：helm get all
+
+```shell
+helm get all kafka -n kafka
+```
+
+### 删除 Kafka Chart：helm delete
+
+```shell
+helm delete kafka -n kafka
+```
+
+### 升级 Kafka Chart：helm upgrade
+
+```shell
+## 指定 Kafka Chart 版本
+helm upgrade kafka bitnami/kafka --version 28.1.1 -n kafka
+```
+
+### 查看 Kafka Chart 升级信息：helm history
+
+```shell
+helm history kafka -n kafka
+REVISION        UPDATED                         STATUS          CHART           APP VERSION     DESCRIPTION     
+1               Thu Jul 23 01:29:15 2026        deployed        kafka-28.1.1    3.7.0           Install complete
+```
+
+### 回滚 Kafka Chart：helm rollback
+
+```shell
+## 回滚到上一个版本
+helm rollback kafka -n kafka
+```
+
+### 查看 Kafka Chart 状态：helm status kafka
+```shell
+helm status kafka
+NAME: kafka
+LAST DEPLOYED: Thu Jul 23 01:46:39 2026
+NAMESPACE: default
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+CHART NAME: kafka
+CHART VERSION: 32.4.4
+APP VERSION: 4.0.0
+
+⚠ WARNING: Since August 28th, 2025, only a limited subset of images/charts are available for free.
+    Subscribe to Bitnami Secure Images to receive continued support and security updates.
+    More info at https://bitnami.com and https://github.com/bitnami/containers/issues/83267
+
+** Please be patient while the chart is being deployed **
+
+Kafka can be accessed by consumers via port 9092 on the following DNS name from within your cluster:
+
+    kafka.default.svc.cluster.local
+
+Each Kafka broker can be accessed by producers via port 9092 on the following DNS name(s) from within your cluster:
+
+    kafka-controller-0.kafka-controller-headless.default.svc.cluster.local:9092
+    kafka-controller-1.kafka-controller-headless.default.svc.cluster.local:9092
+    kafka-controller-2.kafka-controller-headless.default.svc.cluster.local:9092
+
+The CLIENT listener for Kafka client connections from within your cluster have been configured with the following security settings:
+    - SASL authentication
+
+To connect a client to your Kafka, you need to create the 'client.properties' configuration files with the content below:
+
+security.protocol=SASL_PLAINTEXT
+sasl.mechanism=SCRAM-SHA-256
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required \
+    username="user1" \
+    password="$(kubectl get secret kafka-user-passwords --namespace default -o jsonpath='{.data.client-passwords}' | base64 -d | cut -d , -f 1)";
+
+To create a pod that you can use as a Kafka client run the following commands:
+
+    kubectl run kafka-client --restart='Never' --image docker.io/bitnami/kafka:4.0.0-debian-12-r10 --namespace default --command -- sleep infinity
+    kubectl cp --namespace default /path/to/client.properties kafka-client:/tmp/client.properties
+    kubectl exec --tty -i kafka-client --namespace default -- bash
+
+    PRODUCER:
+        kafka-console-producer.sh \
+            --producer.config /tmp/client.properties \
+            --bootstrap-server kafka.default.svc.cluster.local:9092 \
+            --topic test
+
+    CONSUMER:
+        kafka-console-consumer.sh \
+            --consumer.config /tmp/client.properties \
+            --bootstrap-server kafka.default.svc.cluster.local:9092 \
+            --topic test \
+            --from-beginning
+
+WARNING: There are "resources" sections in the chart not set. Using "resourcesPreset" is not recommended for production. For production installations, please set the following values according to your workload needs:
+  - controller.resources
+  - defaultInitContainers.prepareConfig.resources
++info https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+```
