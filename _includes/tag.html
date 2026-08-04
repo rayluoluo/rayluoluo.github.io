@@ -29,6 +29,7 @@
 		let hash = window.location.hash ? decodeURIComponent(window.location.hash.substring(1)) : '';
 		if (hash) {
 			$('#tag-name').text(hash);
+			let hashLower = hash.toLowerCase();
 			$('.post-list-item').each((i, e) => {
 				let hasMatch = false;
 				let classList = $(e).attr('class').split(' ');
@@ -36,7 +37,7 @@
 					let cls = classList[j];
 					if (cls.startsWith('post-tag-')) {
 						let tag = cls.replace('post-tag-', '');
-						if (tag === hash || tag.startsWith(hash + '-')) {
+						if (tag === hashLower || tag.startsWith(hashLower + '-')) {
 							hasMatch = true;
 							break;
 						}
